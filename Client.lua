@@ -26,7 +26,7 @@ Stroke = Color3.fromRGB(255, 255, 255)
 }
  
 -- UI Elements
-local gui, mainFrame, contentFrame, topBar
+local gui, mainFrame, contentFrame, topBar, loadingFrame
 local trafficRed, trafficYellow, trafficGreen
 local idInput, volInput, pitchInput
 local loadBtn, saveBtn
@@ -221,7 +221,29 @@ local function makeDraggable(guiObj)
                                         createStroke(mainFrame, 0.8, 1)
                                         
                                         uiScale = Instance.new("UIScale", mainFrame)
-                                        
+
+                                        loadingFrame = Instance.new("Frame", mainFrame)
+                                        loadingFrame.Size = UDim2.new(1, 0, 1, 0)
+                                        loadingFrame.Position = UDim2.new(0, 0, 0, 0)
+                                        loadingFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 12)
+                                        loadingFrame.BackgroundTransparency = 0
+                                        loadingFrame.ZIndex = 25
+                                        createRound(loadingFrame, 16)
+                                        createStroke(loadingFrame, 0.75, 1)
+
+                                        local loadingText = Instance.new("TextLabel", loadingFrame)
+                                        loadingText.Size = UDim2.new(1, -20, 1, -20)
+                                        loadingText.Position = UDim2.new(0, 10, 0, 10)
+                                        loadingText.BackgroundTransparency = 1
+                                        loadingText.Font = Enum.Font.Code
+                                        loadingText.TextSize = 14
+                                        loadingText.TextColor3 = Color3.fromRGB(0, 255, 0)
+                                        loadingText.TextXAlignment = Enum.TextXAlignment.Left
+                                        loadingText.TextYAlignment = Enum.TextYAlignment.Top
+                                        loadingText.TextWrapped = true
+                                        loadingText.Text = "> BOOTING CUSTOM BOOMBOX..."
+                                        loadingText.ZIndex = 26
+
                                         topBar = Instance.new("Frame", mainFrame)
                                         topBar.Size = UDim2.new(1, 0, 0, 40)
                                         topBar.BackgroundTransparency = 1
@@ -234,6 +256,8 @@ local function makeDraggable(guiObj)
                                         contentFrame.Size = UDim2.new(1, -20, 1, -40)
                                         contentFrame.Position = UDim2.new(0, 10, 0, 35)
                                         contentFrame.BackgroundTransparency = 1
+                                        topBar.Visible = false
+                                        contentFrame.Visible = false
  
                                         local vizArea = Instance.new("Frame", contentFrame)
                                         vizArea.Size = UDim2.new(1, 0, 0, 60)
@@ -342,6 +366,33 @@ local function makeDraggable(guiObj)
                                                                                     volBox.FocusLost:Connect(function() local v = tonumber(volBox.Text); if v then dataFunc:InvokeServer({Action="Volume", Value=v}) end end)
                                                                                         pitchBox.FocusLost:Connect(function() local p = tonumber(pitchBox.Text); if p then dataFunc:InvokeServer({Action="Pitch", Value=p}) end end)
                                                                                             loadPlaylist()
+
+                                                                                            task.spawn(function()
+                                                                                                if not loadingFrame then return end
+                                                                                                local terminalLines = {
+                                                                                                    "> INITIALIZING AUDIO SYSTEM...",
+                                                                                                    "> CONNECTING TO SERVER... [OK]",
+                                                                                                    "> LOADING MODULES... [OK]",
+                                                                                                    "> SYNCING CLOCK... [OK]",
+                                                                                                    "> LAUNCHING UI..."
+                                                                                                }
+                                                                                                local loadingText = loadingFrame:FindFirstChildOfClass("TextLabel")
+                                                                                                if loadingText then
+                                                                                                    loadingText.Text = ""
+                                                                                                    for _, line in ipairs(terminalLines) do
+                                                                                                        loadingText.Text = loadingText.Text .. (loadingText.Text == "" and "" or "\n") .. line
+                                                                                                        task.wait(0.28)
+                                                                                                    end
+                                                                                                end
+
+                                                                                                task.wait(0.2)
+                                                                                                local fadeTween = tweenService:Create(loadingFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 1})
+                                                                                                fadeTween:Play()
+                                                                                                fadeTween.Completed:Wait()
+                                                                                                loadingFrame.Visible = false
+                                                                                                topBar.Visible = true
+                                                                                                contentFrame.Visible = true
+                                                                                            end)
                                                                                             
                                                                                             local function updateTimelineInput(input)
                                                                                                 local sound = getSound()
