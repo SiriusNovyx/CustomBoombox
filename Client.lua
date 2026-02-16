@@ -205,8 +205,8 @@ local function makeDraggable(guiObj)
                             
                             local nameLbl = Instance.new("TextLabel", row); nameLbl.Size = UDim2.new(0.65, 0, 1, 0); nameLbl.Position = UDim2.new(0.05, 0, 0, 0); nameLbl.BackgroundTransparency = 1; nameLbl.Text = song.Name; nameLbl.TextColor3 = THEME.Text; nameLbl.TextXAlignment = Enum.TextXAlignment.Left; nameLbl.Font = Enum.Font.GothamMedium; nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
                             
-                            local playB = Instance.new("TextButton", row); playB.Size = UDim2.new(0.12, 0, 0.7, 0); playB.Position = UDim2.new(0.72, 0, 0.15, 0); playB.Text = "?"; playB.BackgroundColor3 = THEME.Accent; playB.TextColor3 = THEME.Text; createRound(playB, 4)
-                            local delB = Instance.new("TextButton", row); delB.Size = UDim2.new(0.12, 0, 0.7, 0); delB.Position = UDim2.new(0.86, 0, 0.15, 0); delB.Text = "X"; delB.BackgroundColor3 = THEME.Red; delB.TextColor3 = THEME.Text; createRound(delB, 4)
+                            local playB = Instance.new("TextButton", row); playB.Size = UDim2.new(0.12, 0, 0.7, 0); playB.Position = UDim2.new(0.72, 0, 0.15, 0); playB.Text = "PLAY"; playB.BackgroundColor3 = THEME.Accent; playB.TextColor3 = THEME.Text; playB.Font = Enum.Font.GothamBold; playB.TextSize = 11; playB.TextScaled = true; createRound(playB, 4)
+                            local delB = Instance.new("TextButton", row); delB.Size = UDim2.new(0.12, 0, 0.7, 0); delB.Position = UDim2.new(0.86, 0, 0.15, 0); delB.Text = "DEL"; delB.BackgroundColor3 = THEME.Red; delB.TextColor3 = THEME.Text; delB.Font = Enum.Font.GothamBold; delB.TextSize = 11; delB.TextScaled = true; createRound(delB, 4)
                             
                             playB.MouseButton1Click:Connect(function() idBox.Text = song.Id; loadBtnLink() end)
                                 delB.MouseButton1Click:Connect(function() dataFunc:InvokeServer({Action = "DeleteSong", Id = song.Id}); row:Destroy() end)
@@ -317,17 +317,17 @@ local function makeDraggable(guiObj)
                                         -- [SHIFTED DOWN] All elements moved by +15 pixels
                                         local inputRow = Instance.new("Frame", contentFrame); inputRow.Size = UDim2.new(1, 0, 0, 35); inputRow.Position = UDim2.new(0, 0, 0, 160); inputRow.BackgroundTransparency = 1
                                         idBox = Instance.new("TextBox", inputRow); idBox.Size = UDim2.new(0.65, 0, 1, 0); idBox.BackgroundColor3 = Color3.fromRGB(40,40,40); idBox.PlaceholderText = "Song ID"; idBox.Text = ""; idBox.TextColor3 = THEME.Text; idBox.PlaceholderColor3 = Color3.fromRGB(150,150,150); idBox.Font = Enum.Font.Gotham; createRound(idBox, 8)
-                                        loadBtn = Instance.new("TextButton", inputRow); loadBtn.Size = UDim2.new(0.15, 0, 1, 0); loadBtn.Position = UDim2.new(0.67, 0, 0, 0); loadBtn.BackgroundColor3 = THEME.Accent; loadBtn.Text = "??"; loadBtn.TextColor3 = THEME.Text; createRound(loadBtn, 8)
-                                        saveBtn = Instance.new("TextButton", inputRow); saveBtn.Size = UDim2.new(0.15, 0, 1, 0); saveBtn.Position = UDim2.new(0.84, 0, 0, 0); saveBtn.BackgroundColor3 = Color3.fromRGB(60,60,60); saveBtn.Text = "??"; saveBtn.TextColor3 = THEME.Text; createRound(saveBtn, 8)
+                                        loadBtn = Instance.new("TextButton", inputRow); loadBtn.Size = UDim2.new(0.15, 0, 1, 0); loadBtn.Position = UDim2.new(0.67, 0, 0, 0); loadBtn.BackgroundColor3 = THEME.Accent; loadBtn.Text = "LOAD"; loadBtn.TextColor3 = THEME.Text; loadBtn.Font = Enum.Font.GothamBold; loadBtn.TextSize = 12; loadBtn.TextScaled = true; createRound(loadBtn, 8)
+                                        saveBtn = Instance.new("TextButton", inputRow); saveBtn.Size = UDim2.new(0.15, 0, 1, 0); saveBtn.Position = UDim2.new(0.84, 0, 0, 0); saveBtn.BackgroundColor3 = Color3.fromRGB(60,60,60); saveBtn.Text = "SAVE"; saveBtn.TextColor3 = THEME.Text; saveBtn.Font = Enum.Font.GothamBold; saveBtn.TextSize = 12; saveBtn.TextScaled = true; createRound(saveBtn, 8)
  
                                         local ctrlRow = Instance.new("Frame", contentFrame); ctrlRow.Size = UDim2.new(1, 0, 0, 45); ctrlRow.Position = UDim2.new(0, 0, 0, 210); ctrlRow.BackgroundTransparency = 1
                                         local ctrlLayout = Instance.new("UIListLayout", ctrlRow); ctrlLayout.FillDirection = Enum.FillDirection.Horizontal; ctrlLayout.Padding = UDim.new(0, 10); ctrlLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-                                        local function createCtrlBtn(text, color) local b = Instance.new("TextButton", ctrlRow); b.Size = UDim2.new(0, 60, 1, 0); b.BackgroundColor3 = color or Color3.fromRGB(50,50,50); b.Text = text; b.TextColor3 = THEME.Text; b.Font = Enum.Font.GothamBold; b.TextSize = 20; createRound(b, 10); return b end
+                                        local function createCtrlBtn(text, color) local b = Instance.new("TextButton", ctrlRow); b.Size = UDim2.new(0, 60, 1, 0); b.BackgroundColor3 = color or Color3.fromRGB(50,50,50); b.Text = text; b.TextColor3 = THEME.Text; b.Font = Enum.Font.GothamBold; b.TextSize = 14; b.TextScaled = true; createRound(b, 10); return b end
                                         
-                                        resumeBtn = createCtrlBtn("?", THEME.Green)
-                                        pauseBtn = createCtrlBtn("?", THEME.Yellow)
-                                        stopBtn = createCtrlBtn("?", THEME.Red)
-                                        loopBtn = createCtrlBtn("??", Color3.fromRGB(80,80,200))
+                                        resumeBtn = createCtrlBtn("PLAY", THEME.Green)
+                                        pauseBtn = createCtrlBtn("PAUSE", THEME.Yellow)
+                                        stopBtn = createCtrlBtn("STOP", THEME.Red)
+                                        loopBtn = createCtrlBtn("LOOP", Color3.fromRGB(80,80,200))
                                         
                                         local lowerRow = Instance.new("Frame", contentFrame); lowerRow.Size = UDim2.new(1, 0, 0, 30); lowerRow.Position = UDim2.new(0, 0, 0, 270); lowerRow.BackgroundTransparency = 1
                                         volBox = Instance.new("TextBox", lowerRow); volBox.Size = UDim2.new(0.3, 0, 1, 0); volBox.BackgroundColor3 = Color3.fromRGB(40,40,40); volBox.Text = "0.5"; volBox.PlaceholderText = "Vol"; volBox.TextColor3 = THEME.Text; createRound(volBox, 6)
@@ -425,13 +425,13 @@ local function makeDraggable(guiObj)
 
 	                                                                                                                                            if sound and sound.IsPlaying then
 	                                                                                                                                                local centerIndex = (#vizBars + 1) / 2
-	                                                                                                                                                local loudness = math.clamp(sound.PlaybackLoudness / 1200, 0, 1)
+	                                                                                                                                                local loudness = math.clamp(sound.PlaybackLoudness / 450, 0, 2.4)
 	                                                                                                                                                for i, bar in ipairs(vizBars) do
 	                                                                                                                                                    local distanceFromCenter = math.abs(i - centerIndex)
 	                                                                                                                                                    local normalizedDistance = distanceFromCenter / centerIndex
 	                                                                                                                                                    local bellCurve = math.exp(-(normalizedDistance * normalizedDistance) / 0.2)
 	                                                                                                                                                    local idleWave = (math.sin((timeOffset * 2.4) + (i * 0.55)) + 1) * 0.5
-	                                                                                                                                                    local targetHeight = math.clamp(4 + (loudness * 42 * bellCurve) + (idleWave * 4 * (1 - normalizedDistance)), 4, 50)
+	                                                                                                                                                    local targetHeight = math.clamp(4 + (loudness * 62 * bellCurve) + (idleWave * 5 * (1 - normalizedDistance)), 4, 80)
 	                                                                                                                                                    bar.Size = bar.Size:Lerp(UDim2.new(0, 8, 0, targetHeight), 0.2)
 	                                                                                                                                                end
 	                                                                                                                                            else
