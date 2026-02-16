@@ -33,7 +33,6 @@ local loadBtn, saveBtn
 local playBtn, pauseBtn, stopBtn, loopBtn, mountBtn
 local timelineBG, timelineFill, timelineKnob
 local timeLabelLeft, timeLabelRight, syncLabel -- [NEW] syncLabel
-local notificationFrame, notifText
 local playlistFrame, playlistScroll
 local vizContainer
 local vizBars = {}
@@ -109,18 +108,6 @@ local function makeDraggable(guiObj)
                     if not seconds or seconds == math.huge then return "0:00" end
                     local m = math.floor(seconds / 60); local s = math.floor(seconds % 60)
                     return string.format("%d:%02d", m, s)
-                end
- 
-                -- === NOTIFICATION SYSTEM ===
-                local function showNotification(text, typeColor)
-                    if not notificationFrame then return end
-                    notifText.Text = text
-                    notifText.TextColor3 = typeColor or THEME.Text
-                    
-                    notificationFrame:TweenPosition(UDim2.new(0.5, -100, 0, 10), "Out", "Back", 0.4, true)
-                    task.delay(2.5, function()
-                        notificationFrame:TweenPosition(UDim2.new(0.5, -100, 0, -60), "In", "Quad", 0.3, true)
-                    end)
                 end
  
                 -- === CORE FUNCTIONS ===
@@ -205,8 +192,8 @@ local function makeDraggable(guiObj)
                             
                             local nameLbl = Instance.new("TextLabel", row); nameLbl.Size = UDim2.new(0.65, 0, 1, 0); nameLbl.Position = UDim2.new(0.05, 0, 0, 0); nameLbl.BackgroundTransparency = 1; nameLbl.Text = song.Name; nameLbl.TextColor3 = THEME.Text; nameLbl.TextXAlignment = Enum.TextXAlignment.Left; nameLbl.Font = Enum.Font.GothamMedium; nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
                             
-                            local playB = Instance.new("TextButton", row); playB.Size = UDim2.new(0.12, 0, 0.7, 0); playB.Position = UDim2.new(0.72, 0, 0.15, 0); playB.Text = "PLAY"; playB.BackgroundColor3 = THEME.Accent; playB.TextColor3 = THEME.Text; playB.Font = Enum.Font.GothamBold; playB.TextSize = 11; playB.TextScaled = true; createRound(playB, 4)
-                            local delB = Instance.new("TextButton", row); delB.Size = UDim2.new(0.12, 0, 0.7, 0); delB.Position = UDim2.new(0.86, 0, 0.15, 0); delB.Text = "DEL"; delB.BackgroundColor3 = THEME.Red; delB.TextColor3 = THEME.Text; delB.Font = Enum.Font.GothamBold; delB.TextSize = 11; delB.TextScaled = true; createRound(delB, 4)
+                            local playB = Instance.new("TextButton", row); playB.Size = UDim2.new(0.12, 0, 0.7, 0); playB.Position = UDim2.new(0.72, 0, 0.15, 0); playB.Text = "PLAY"; playB.BackgroundColor3 = THEME.Accent; playB.TextColor3 = THEME.Text; playB.Font = Enum.Font.GothamMedium; playB.TextSize = 14; playB.TextScaled = false; createRound(playB, 4)
+                            local delB = Instance.new("TextButton", row); delB.Size = UDim2.new(0.12, 0, 0.7, 0); delB.Position = UDim2.new(0.86, 0, 0.15, 0); delB.Text = "DEL"; delB.BackgroundColor3 = THEME.Red; delB.TextColor3 = THEME.Text; delB.Font = Enum.Font.GothamMedium; delB.TextSize = 14; delB.TextScaled = false; createRound(delB, 4)
                             
                             playB.MouseButton1Click:Connect(function() idBox.Text = song.Id; loadBtnLink() end)
                                 delB.MouseButton1Click:Connect(function() dataFunc:InvokeServer({Action = "DeleteSong", Id = song.Id}); row:Destroy() end)
@@ -223,22 +210,6 @@ local function makeDraggable(guiObj)
                                         gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling 
                                         gui.ResetOnSpawn = true 
                                         
-                                        notificationFrame = Instance.new("Frame", gui)
-                                        notificationFrame.Size = UDim2.new(0, 200, 0, 32)
-                                        notificationFrame.Position = UDim2.new(0.5, -100, 0, -60)
-                                        notificationFrame.BackgroundColor3 = Color3.fromRGB(10,10,10)
-                                        notificationFrame.ZIndex = 200
-                                        createRound(notificationFrame, 20)
-                                        createStroke(notificationFrame, 0.8, 1)
-                                        
-                                        notifText = Instance.new("TextLabel", notificationFrame)
-                                        notifText.Size = UDim2.new(1,0,1,0)
-                                        notifText.BackgroundTransparency = 1
-                                        notifText.Font = Enum.Font.GothamBold
-                                        notifText.TextSize = 14
-                                        notifText.Text = "" -- [FIX] Empty by default
-                                        notifText.TextColor3 = THEME.Text
- 
                                         mainFrame = Instance.new("Frame", gui)
                                         mainFrame.Size = UDim2.new(0, 320, 0, 450)
                                         mainFrame.Position = UDim2.new(0.5, -160, 0.5, -225)
@@ -317,12 +288,12 @@ local function makeDraggable(guiObj)
                                         -- [SHIFTED DOWN] All elements moved by +15 pixels
                                         local inputRow = Instance.new("Frame", contentFrame); inputRow.Size = UDim2.new(1, 0, 0, 35); inputRow.Position = UDim2.new(0, 0, 0, 160); inputRow.BackgroundTransparency = 1
                                         idBox = Instance.new("TextBox", inputRow); idBox.Size = UDim2.new(0.65, 0, 1, 0); idBox.BackgroundColor3 = Color3.fromRGB(40,40,40); idBox.PlaceholderText = "Song ID"; idBox.Text = ""; idBox.TextColor3 = THEME.Text; idBox.PlaceholderColor3 = Color3.fromRGB(150,150,150); idBox.Font = Enum.Font.Gotham; createRound(idBox, 8)
-                                        loadBtn = Instance.new("TextButton", inputRow); loadBtn.Size = UDim2.new(0.15, 0, 1, 0); loadBtn.Position = UDim2.new(0.67, 0, 0, 0); loadBtn.BackgroundColor3 = THEME.Accent; loadBtn.Text = "LOAD"; loadBtn.TextColor3 = THEME.Text; loadBtn.Font = Enum.Font.GothamBold; loadBtn.TextSize = 12; loadBtn.TextScaled = true; createRound(loadBtn, 8)
-                                        saveBtn = Instance.new("TextButton", inputRow); saveBtn.Size = UDim2.new(0.15, 0, 1, 0); saveBtn.Position = UDim2.new(0.84, 0, 0, 0); saveBtn.BackgroundColor3 = Color3.fromRGB(60,60,60); saveBtn.Text = "SAVE"; saveBtn.TextColor3 = THEME.Text; saveBtn.Font = Enum.Font.GothamBold; saveBtn.TextSize = 12; saveBtn.TextScaled = true; createRound(saveBtn, 8)
+                                        loadBtn = Instance.new("TextButton", inputRow); loadBtn.Size = UDim2.new(0.15, 0, 1, 0); loadBtn.Position = UDim2.new(0.67, 0, 0, 0); loadBtn.BackgroundColor3 = THEME.Accent; loadBtn.Text = "LOAD"; loadBtn.TextColor3 = THEME.Text; loadBtn.Font = Enum.Font.GothamMedium; loadBtn.TextSize = 14; loadBtn.TextScaled = false; createRound(loadBtn, 8)
+                                        saveBtn = Instance.new("TextButton", inputRow); saveBtn.Size = UDim2.new(0.15, 0, 1, 0); saveBtn.Position = UDim2.new(0.84, 0, 0, 0); saveBtn.BackgroundColor3 = Color3.fromRGB(60,60,60); saveBtn.Text = "SAVE"; saveBtn.TextColor3 = THEME.Text; saveBtn.Font = Enum.Font.GothamMedium; saveBtn.TextSize = 14; saveBtn.TextScaled = false; createRound(saveBtn, 8)
  
                                         local ctrlRow = Instance.new("Frame", contentFrame); ctrlRow.Size = UDim2.new(1, 0, 0, 45); ctrlRow.Position = UDim2.new(0, 0, 0, 210); ctrlRow.BackgroundTransparency = 1
                                         local ctrlLayout = Instance.new("UIListLayout", ctrlRow); ctrlLayout.FillDirection = Enum.FillDirection.Horizontal; ctrlLayout.Padding = UDim.new(0, 10); ctrlLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-                                        local function createCtrlBtn(text, color) local b = Instance.new("TextButton", ctrlRow); b.Size = UDim2.new(0, 60, 1, 0); b.BackgroundColor3 = color or Color3.fromRGB(50,50,50); b.Text = text; b.TextColor3 = THEME.Text; b.Font = Enum.Font.GothamBold; b.TextSize = 14; b.TextScaled = true; createRound(b, 10); return b end
+                                        local function createCtrlBtn(text, color) local b = Instance.new("TextButton", ctrlRow); b.Size = UDim2.new(0, 60, 1, 0); b.BackgroundColor3 = color or Color3.fromRGB(50,50,50); b.Text = text; b.TextColor3 = THEME.Text; b.Font = Enum.Font.GothamMedium; b.TextSize = 14; b.TextScaled = false; createRound(b, 10); return b end
                                         
                                         resumeBtn = createCtrlBtn("PLAY", THEME.Green)
                                         pauseBtn = createCtrlBtn("PAUSE", THEME.Yellow)
@@ -367,7 +338,7 @@ local function makeDraggable(guiObj)
                                                                     stopBtn.MouseButton1Click:Connect(function() dataFunc:InvokeServer({Action = "Stop"}) end)
                                                                         loopBtn.MouseButton1Click:Connect(function() local r = dataFunc:InvokeServer({Action = "Loop"}); if r.Success then loopBtn.BackgroundColor3 = r.IsLooping and THEME.Accent or Color3.fromRGB(80,80,200) end end)
                                                                             mountBtn.MouseButton1Click:Connect(function() dataFunc:InvokeServer({Action = "Mount"}) end)
-                                                                                saveBtn.MouseButton1Click:Connect(function() if idBox.Text ~= "" and currentSongName ~= "Ready" then local r = dataFunc:InvokeServer({Action="SaveSong", Id=idBox.Text, Name=currentSongName}); if r.Success then showNotification("Saved!", THEME.Green); loadPlaylist() elseif r.Reason == "Duplicate" then showNotification("Already Saved", THEME.Yellow) else showNotification("Error Saving", THEME.Red) end end end)
+                                                                                saveBtn.MouseButton1Click:Connect(function() if idBox.Text ~= "" and currentSongName ~= "Ready" then local r = dataFunc:InvokeServer({Action="SaveSong", Id=idBox.Text, Name=currentSongName}); if r.Success then if scrollingMusicLabel then scrollingMusicLabel.Text = "Saved!"; scrollingMusicLabel.TextColor3 = THEME.Green; scrollOffset = 0; scrollingMusicLabel.Position = UDim2.new(0,0,0,0) end; loadPlaylist() elseif r.Reason == "Duplicate" then if scrollingMusicLabel then scrollingMusicLabel.Text = "Already Saved"; scrollingMusicLabel.TextColor3 = THEME.Yellow; scrollOffset = 0; scrollingMusicLabel.Position = UDim2.new(0,0,0,0) end else if scrollingMusicLabel then scrollingMusicLabel.Text = "Error Saving"; scrollingMusicLabel.TextColor3 = THEME.Red; scrollOffset = 0; scrollingMusicLabel.Position = UDim2.new(0,0,0,0) end end end end)
                                                                                     volBox.FocusLost:Connect(function() local v = tonumber(volBox.Text); if v then dataFunc:InvokeServer({Action="Volume", Value=v}) end end)
                                                                                         pitchBox.FocusLost:Connect(function() local p = tonumber(pitchBox.Text); if p then dataFunc:InvokeServer({Action="Pitch", Value=p}) end end)
                                                                                             loadPlaylist()
@@ -400,7 +371,7 @@ local function makeDraggable(guiObj)
                                                                                                                 isLoading = true
                                                                                                                 local sound = getSound()
                                                                                                                 if sound and sound.SoundId ~= "" and lastWorkingId == "" then if sound.TimeLength > 0 then lastWorkingId = string.match(sound.SoundId, "%d+"); lastWorkingTime = sound.TimePosition end elseif sound and sound.TimeLength > 0 then lastWorkingTime = sound.TimePosition end
-                                                                                                                showNotification("Loading...", THEME.Accent)
+                                                                                                                if scrollingMusicLabel then scrollingMusicLabel.Text = "Loading..."; scrollingMusicLabel.TextColor3 = THEME.Accent; scrollOffset = 0; scrollingMusicLabel.Position = UDim2.new(0,0,0,0) end
                                                                                                                 local targetId = idBox.Text
                                                                                                                 local success, result = pcall(function() return dataFunc:InvokeServer({Action = "AudioId", Value = targetId}) end)
                                                                                                                     if success and result.Success then
@@ -409,10 +380,10 @@ local function makeDraggable(guiObj)
                                                                                                                             while waitTime < 8 do if getSound().TimeLength > 0 then break end; waitTime = waitTime + 0.1; task.wait(0.1) end
                                                                                                                             isLoading = false
                                                                                                                             local newSound = getSound()
-                                                                                                                            if newSound and newSound.TimeLength > 0 then lastWorkingId = targetId; local state = dataFunc:InvokeServer({Action = "GetState"}); if state then syncAudio(state) end; showNotification("Playing", THEME.Green)
-                                                                                                                            else showNotification("Failed! Reverting...", THEME.Red); if lastWorkingId ~= "" then dataFunc:InvokeServer({Action = "AudioId", Value = lastWorkingId, Time = lastWorkingTime}) end end
+                                                                                                                            if newSound and newSound.TimeLength > 0 then lastWorkingId = targetId; local state = dataFunc:InvokeServer({Action = "GetState"}); if state then syncAudio(state) end; if scrollingMusicLabel then scrollingMusicLabel.Text = "Playing"; scrollingMusicLabel.TextColor3 = THEME.Green; scrollOffset = 0; scrollingMusicLabel.Position = UDim2.new(0,0,0,0) end
+                                                                                                                            else if scrollingMusicLabel then scrollingMusicLabel.Text = "Failed! Reverting..."; scrollingMusicLabel.TextColor3 = THEME.Red; scrollOffset = 0; scrollingMusicLabel.Position = UDim2.new(0,0,0,0) end; if lastWorkingId ~= "" then dataFunc:InvokeServer({Action = "AudioId", Value = lastWorkingId, Time = lastWorkingTime}) end end
                                                                                                                             end)
-                                                                                                                            else isLoading = false; showNotification("Invalid ID", THEME.Red) end
+                                                                                                                            else isLoading = false; if scrollingMusicLabel then scrollingMusicLabel.Text = "Invalid ID"; scrollingMusicLabel.TextColor3 = THEME.Red; scrollOffset = 0; scrollingMusicLabel.Position = UDim2.new(0,0,0,0) end end
                                                                                                                             end
  
                                                                                                                                 replication.OnClientEvent:Connect(function(newState) syncAudio(newState) end)
@@ -471,4 +442,3 @@ local function makeDraggable(guiObj)
  
                                                                                                                                     tool.Equipped:Connect(function() if not gui then createGui() end; gui.Parent = player:WaitForChild("PlayerGui"); local state = dataFunc:InvokeServer({Action = "GetState"}); if state and state.Success then syncAudio(state) end end)
                                                                                                                                         tool.Unequipped:Connect(function() if gui then gui.Parent = nil end end)
-
