@@ -39,35 +39,53 @@ local function getPropertySafe(instance, propertyName, fallback)
 	return fallback
 end
 
+local function resolveAudioPart(parent)
+	if parent and parent:IsA("BasePart") then
+		return parent
+	end
+	if parent then
+		local candidate = parent:FindFirstChildWhichIsA("BasePart")
+		if candidate then
+			return candidate
+		end
+	end
+	return handle
+end
+
 local function ensureAudioRig(parent)
-	local audioPlayer = parent:FindFirstChild(PLAYER_NAME)
+	local audioParent = resolveAudioPart(parent)
+	local audioPlayer = audioParent:FindFirstChild(PLAYER_NAME)
 	if not (audioPlayer and audioPlayer:IsA("AudioPlayer")) then
 		if audioPlayer then
 			audioPlayer:Destroy()
 		end
 		audioPlayer = Instance.new("AudioPlayer")
 		audioPlayer.Name = PLAYER_NAME
-		audioPlayer.Parent = parent
+		audioPlayer.Parent = audioParent
 	end
 
-	local audioEmitter = parent:FindFirstChild(EMITTER_NAME)
+	local audioEmitter = audioParent:FindFirstChild(EMITTER_NAME)
 	if not (audioEmitter and audioEmitter:IsA("AudioEmitter")) then
 		if audioEmitter then
 			audioEmitter:Destroy()
 		end
 		audioEmitter = Instance.new("AudioEmitter")
 		audioEmitter.Name = EMITTER_NAME
-		audioEmitter.Parent = parent
+		audioEmitter.Parent = audioParent
+	else
+		audioEmitter.Parent = audioParent
 	end
 
-	local wire = parent:FindFirstChild(WIRE_NAME)
+	local wire = audioParent:FindFirstChild(WIRE_NAME)
 	if not (wire and wire:IsA("Wire")) then
 		if wire then
 			wire:Destroy()
 		end
 		wire = Instance.new("Wire")
 		wire.Name = WIRE_NAME
-		wire.Parent = parent
+		wire.Parent = audioParent
+	else
+		wire.Parent = audioParent
 	end
 
 	wire.SourceInstance = audioPlayer
@@ -80,7 +98,7 @@ local function ensureAudioRig(parent)
 	setPropertySafe(audioEmitter, "MaxDistance", 100)
 	setPropertySafe(audioEmitter, "MinDistance", 10)
 	pcall(function()
-		audioEmitter:SetDistanceAttenuation({[0] = 1, [15] = 1, [100] = 0})
+		audioEmitter:SetDistanceAttenuation({[0] = 1, [15] = 0.8, [50] = 0.2, [80] = 0})
 	end)
 
 	return audioPlayer, audioEmitter, wire
