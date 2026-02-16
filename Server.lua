@@ -78,6 +78,7 @@ local function ensureAudioRig(parent)
 	setPropertySafe(audioPlayer, "PlaybackSpeed", 1)
 	setPropertySafe(audioEmitter, "MaxDistance", 100)
 	setPropertySafe(audioEmitter, "MinDistance", 10)
+	setPropertySafe(audioEmitter, "DistanceAttenuation", 100)
 
 	return audioPlayer, audioEmitter, wire
 end
