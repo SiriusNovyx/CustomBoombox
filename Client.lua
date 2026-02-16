@@ -38,7 +38,6 @@ local vizContainer
 local vizBars = {}
 local uiScale 
 local localAnalyzer, analyzerWire
-local localOutput, outputWire
  
 local OWNER_IDS = { [6024031120] = true, [7483134350] = true }
  
@@ -172,23 +171,6 @@ local function makeDraggable(guiObj)
                     analyzerWire.SourceInstance = audioPlayer
                     analyzerWire.TargetInstance = localAnalyzer
                     analyzerWire.Parent = tool
-                end
-
-                local function setupLocalOutput()
-                    if localOutput then localOutput:Destroy(); localOutput = nil end
-                    if outputWire then outputWire:Destroy(); outputWire = nil end
-                    local audioPlayer = getAudioPlayer()
-                    if not audioPlayer then return end
-
-                    localOutput = Instance.new("AudioDeviceOutput")
-                    localOutput.Name = "LocalBoomboxOutput"
-                    localOutput.Parent = tool
-
-                    outputWire = Instance.new("Wire")
-                    outputWire.Name = "LocalBoomboxOutputWire"
-                    outputWire.SourceInstance = audioPlayer
-                    outputWire.TargetInstance = localOutput
-                    outputWire.Parent = tool
                 end
 
                 local function getSound()
@@ -505,7 +487,7 @@ local function makeDraggable(guiObj)
 	                                                                                                                                    runService.RenderStepped:Connect(function(step)
 	                                                                                                                                        pcall(function()
 	                                                                                                                                            local sound = getSound()
-	                                                                                                                                            if sound and ((not analyzerWire) or analyzerWire.SourceInstance ~= sound) then setupAnalyzer(); setupLocalOutput() end
+	                                                                                                                                            if sound and ((not analyzerWire) or analyzerWire.SourceInstance ~= sound) then setupAnalyzer() end
 	                                                                                                                                            if not mainFrame.Visible then return end
 	                                                                                                                                            timeOffset = timeOffset + (step * 2)
 
@@ -553,5 +535,5 @@ local function makeDraggable(guiObj)
 	                                                                                                                                        end)
 	                                                                                                                                    end)
  
-                                                                                                                                    tool.Equipped:Connect(function() if not gui then createGui() end; gui.Parent = player:WaitForChild("PlayerGui"); setupAnalyzer(); setupLocalOutput(); local state = dataFunc:InvokeServer({Action = "GetState"}); if state and state.Success then syncAudio(state) end end)
-                                                                                                                                        tool.Unequipped:Connect(function() if gui then gui.Parent = nil end; if analyzerWire then analyzerWire:Destroy(); analyzerWire = nil end; if localAnalyzer then localAnalyzer:Destroy(); localAnalyzer = nil end; if outputWire then outputWire:Destroy(); outputWire = nil end; if localOutput then localOutput:Destroy(); localOutput = nil end end)
+                                                                                                                                    tool.Equipped:Connect(function() if not gui then createGui() end; gui.Parent = player:WaitForChild("PlayerGui"); setupAnalyzer(); local state = dataFunc:InvokeServer({Action = "GetState"}); if state and state.Success then syncAudio(state) end end)
+                                                                                                                                        tool.Unequipped:Connect(function() if gui then gui.Parent = nil end; if analyzerWire then analyzerWire:Destroy(); analyzerWire = nil end; if localAnalyzer then localAnalyzer:Destroy(); localAnalyzer = nil end end)

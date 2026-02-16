@@ -73,12 +73,15 @@ local function ensureAudioRig(parent)
 	wire.SourceInstance = audioPlayer
 	wire.TargetInstance = audioEmitter
 
+	setPropertySafe(audioPlayer, "AutoLoad", true)
 	setPropertySafe(audioPlayer, "Looping", true)
 	setPropertySafe(audioPlayer, "Volume", 0.5)
 	setPropertySafe(audioPlayer, "PlaybackSpeed", 1)
 	setPropertySafe(audioEmitter, "MaxDistance", 100)
 	setPropertySafe(audioEmitter, "MinDistance", 10)
-	setPropertySafe(audioEmitter, "DistanceAttenuation", 100)
+	pcall(function()
+		audioEmitter:SetDistanceAttenuation({[0] = 1, [15] = 1, [100] = 0})
+	end)
 
 	return audioPlayer, audioEmitter, wire
 end
