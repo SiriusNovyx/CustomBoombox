@@ -417,28 +417,57 @@ local function makeDraggable(guiObj)
  
                                                                                                                                 replication.OnClientEvent:Connect(function(newState) syncAudio(newState) end)
  
-                                                                                                                                    runService.RenderStepped:Connect(function(step)
-                                                                                                                                        pcall(function()
-                                                                                                                                            local sound = getSound()
-                                                                                                                                            if not mainFrame.Visible then return end
-                                                                                                                                            timeOffset = timeOffset + (step * 2)
-                                                                                                                                            if sound and sound.IsPlaying then for i, bar in ipairs(vizBars) do local noise = math.noise(i * 0.2, timeOffset, 0); local h = (sound.PlaybackLoudness / 8) * math.clamp(noise + 0.5, 0.2, 1); bar.Size = bar.Size:Lerp(UDim2.new(0, 8, 0, math.clamp(h, 4, 50)), 0.2) end else for _, bar in ipairs(vizBars) do bar.Size = bar.Size:Lerp(UDim2.new(0, 8, 0, 4), 0.1) end end
-                                                                                                                                            
-                                                                                                                                            -- [ACTIVE SYNC CHECK]
-                                                                                                                                            if globalState.IsPlaying and sound and sound.IsPlaying and sound.TimeLength > 0 and sound.IsLoaded then
-                                                                                                                                                local timePassed = workspace:GetServerTimeNow() - globalState.LastUpdateTimestamp
-                                                                                                                                                local expectedTime = globalState.StartPosition + timePassed
-                                                                                                                                                if sound.Looped then expectedTime = expectedTime % sound.TimeLength else expectedTime = math.clamp(expectedTime, 0, sound.TimeLength) end
-                                                                                                                                                
-                                                                                                                                                if math.abs(sound.TimePosition - expectedTime) > 0.8 then
-                                                                                                                                                    sound.TimePosition = expectedTime
-                                                                                                                                                end
-                                                                                                                                            end
- 
-                                                                                                                                            if sound and sound.TimeLength > 0 then timeLabelLeft.Text = formatTime(sound.TimePosition); timeLabelRight.Text = formatTime(sound.TimeLength); if not isDraggingTimeline then local pct = math.clamp(sound.TimePosition / sound.TimeLength, 0, 1); timelineFill.Size = UDim2.new(pct, 0, 1, 0); timelineKnob.Position = UDim2.new(pct, 0, 0.5, 0) end end
-                                                                                                                                            if scrollingMusicLabel then local textWidth = scrollingMusicLabel.TextBounds.X; local containerWidth = 280; if textWidth > containerWidth then scrollOffset = scrollOffset - (step * 40); if scrollOffset < -(textWidth + 30) then scrollOffset = containerWidth end; scrollingMusicLabel.Position = UDim2.new(0, scrollOffset, 0, 0) else scrollingMusicLabel.Position = UDim2.new(0, 0, 0, 0) end end
-                                                                                                                                        end)
-                                                                                                                                    end)
+	                                                                                                                                    runService.RenderStepped:Connect(function(step)
+	                                                                                                                                        pcall(function()
+	                                                                                                                                            local sound = getSound()
+	                                                                                                                                            if not mainFrame.Visible then return end
+	                                                                                                                                            timeOffset = timeOffset + (step * 2)
+
+	                                                                                                                                            if sound and sound.IsPlaying then
+	                                                                                                                                                local centerIndex = (#vizBars + 1) / 2
+	                                                                                                                                                local loudness = math.clamp(sound.PlaybackLoudness / 1200, 0, 1)
+	                                                                                                                                                for i, bar in ipairs(vizBars) do
+	                                                                                                                                                    local distanceFromCenter = math.abs(i - centerIndex)
+	                                                                                                                                                    local normalizedDistance = distanceFromCenter / centerIndex
+	                                                                                                                                                    local bellCurve = math.exp(-(normalizedDistance * normalizedDistance) / 0.2)
+	                                                                                                                                                    local idleWave = (math.sin((timeOffset * 2.4) + (i * 0.55)) + 1) * 0.5
+	                                                                                                                                                    local targetHeight = math.clamp(4 + (loudness * 42 * bellCurve) + (idleWave * 4 * (1 - normalizedDistance)), 4, 50)
+	                                                                                                                                                    bar.Size = bar.Size:Lerp(UDim2.new(0, 8, 0, targetHeight), 0.2)
+	                                                                                                                                                end
+	                                                                                                                                            else
+	                                                                                                                                                for i, bar in ipairs(vizBars) do
+	                                                                                                                                                    local centerIndex = (#vizBars + 1) / 2
+	                                                                                                                                                    local distanceFromCenter = math.abs(i - centerIndex)
+	                                                                                                                                                    local normalizedDistance = distanceFromCenter / centerIndex
+	                                                                                                                                                    local idleWave = (math.sin((timeOffset * 1.8) + (i * 0.45)) + 1) * 0.5
+	                                                                                                                                                    local targetHeight = 4 + (idleWave * 2.5 * (1 - normalizedDistance))
+	                                                                                                                                                    bar.Size = bar.Size:Lerp(UDim2.new(0, 8, 0, targetHeight), 0.2)
+	                                                                                                                                                end
+	                                                                                                                                            end
+
+	                                                                                                                                            -- [ACTIVE SYNC CHECK]
+	                                                                                                                                            if globalState.IsPlaying and sound and sound.IsPlaying and sound.TimeLength > 0 and sound.IsLoaded then
+	                                                                                                                                                local timePassed = workspace:GetServerTimeNow() - globalState.LastUpdateTimestamp
+	                                                                                                                                                local expectedTime = globalState.StartPosition + timePassed
+	                                                                                                                                                if sound.Looped then expectedTime = expectedTime % sound.TimeLength else expectedTime = math.clamp(expectedTime, 0, sound.TimeLength) end
+	                                                                                                                                                
+	                                                                                                                                                if math.abs(sound.TimePosition - expectedTime) > 0.8 then
+	                                                                                                                                                    sound.TimePosition = expectedTime
+	                                                                                                                                                end
+	                                                                                                                                            end
+
+	                                                                                                                                            if sound and sound.TimeLength > 0 then
+	                                                                                                                                                timeLabelLeft.Text = formatTime(sound.TimePosition)
+	                                                                                                                                                timeLabelRight.Text = formatTime(sound.TimeLength)
+	                                                                                                                                                if not isDraggingTimeline then
+	                                                                                                                                                    local pct = math.clamp(sound.TimePosition / sound.TimeLength, 0, 1)
+	                                                                                                                                                    timelineFill.Size = timelineFill.Size:Lerp(UDim2.new(pct, 0, 1, 0), 0.3)
+	                                                                                                                                                    timelineKnob.Position = timelineKnob.Position:Lerp(UDim2.new(pct, 0, 0.5, 0), 0.3)
+	                                                                                                                                                end
+	                                                                                                                                            end
+	                                                                                                                                            if scrollingMusicLabel then local textWidth = scrollingMusicLabel.TextBounds.X; local containerWidth = 280; if textWidth > containerWidth then scrollOffset = scrollOffset - (step * 40); if scrollOffset < -(textWidth + 30) then scrollOffset = containerWidth end; scrollingMusicLabel.Position = UDim2.new(0, scrollOffset, 0, 0) else scrollingMusicLabel.Position = UDim2.new(0, 0, 0, 0) end end
+	                                                                                                                                        end)
+	                                                                                                                                    end)
  
                                                                                                                                     tool.Equipped:Connect(function() if not gui then createGui() end; gui.Parent = player:WaitForChild("PlayerGui"); local state = dataFunc:InvokeServer({Action = "GetState"}); if state and state.Success then syncAudio(state) end end)
                                                                                                                                         tool.Unequipped:Connect(function() if gui then gui.Parent = nil end end)
