@@ -151,6 +151,12 @@ local function broadcastState()
 	replication:FireAllClients(getStatePayload())
 end
 
+local function successResponse()
+	local response = getStatePayload()
+	response.Success = true
+	return response
+end
+
 -- Ensure rig exists on tool handle at startup.
 ensureAudioRig(handle)
 
@@ -162,9 +168,7 @@ function dataFunc.OnServerInvoke(player, data)
 	local currentPlayer = getCurrentPlayerForCharacter(char)
 
 	if data.Action == "GetState" then
-		local payload = getStatePayload()
-		payload.Success = true
-		return payload
+		return successResponse()
 
 	elseif data.Action == "SaveSong" then
 		local resultStatus = "Error"
@@ -215,7 +219,7 @@ function dataFunc.OnServerInvoke(player, data)
 		elseif data.Setting == "Particles" then
 			tool:SetAttribute("Particles", data.Value)
 		end
-		return {Success = true}
+		return successResponse()
 
 	elseif data.Action == "Play" then
 		CurrentState.IsPlaying = true
@@ -227,25 +231,24 @@ function dataFunc.OnServerInvoke(player, data)
 			CurrentState.StartPosition = currentTime
 		end
 
-		CurrentState.PlaybackSpeed = getPropertySafe(currentPlayer, "PlaybackSpeed", 1)
 		CurrentState.LastUpdateTimestamp = workspace:GetServerTimeNow()
 		currentPlayer:Play()
 		broadcastState()
-		return {Success = true, Status = "Resumed"}
+		return successResponse()
 
 	elseif data.Action == "Pause" then
 		currentPlayer:Pause()
 		CurrentState.IsPlaying = false
 		CurrentState.StartPosition = getPropertySafe(currentPlayer, "TimePosition", 0)
 		broadcastState()
-		return {Success = true, Status = "Paused"}
+		return successResponse()
 
 	elseif data.Action == "Stop" then
 		currentPlayer:Stop()
 		CurrentState.IsPlaying = false
 		CurrentState.StartPosition = 0
 		broadcastState()
-		return {Success = true, Status = "Stopped"}
+		return successResponse()
 
 	elseif data.Action == "AudioId" then
 		currentPlayer:Stop()
@@ -257,6 +260,8 @@ function dataFunc.OnServerInvoke(player, data)
 
 		local startPos = tonumber(data.Time) or 0
 		setPropertySafe(currentPlayer, "Asset", "rbxassetid://" .. cleanId)
+		setPropertySafe(currentPlayer, "Volume", CurrentState.Volume)
+		setPropertySafe(currentPlayer, "PlaybackSpeed", CurrentState.Pitch)
 		setPropertySafe(currentPlayer, "TimePosition", startPos)
 		currentPlayer:Play()
 
@@ -286,9 +291,10 @@ function dataFunc.OnServerInvoke(player, data)
 			CurrentState.IsPlaying = true
 			CurrentState.StartPosition = startPos
 			CurrentState.PlaybackSpeed = getPropertySafe(currentPlayer, "PlaybackSpeed", 1)
+			CurrentState.Pitch = CurrentState.PlaybackSpeed
 			CurrentState.LastUpdateTimestamp = workspace:GetServerTimeNow()
 			broadcastState()
-			return {Success = true, Name = songName}
+			return successResponse()
 		else
 			currentPlayer:Stop()
 			return {Success = false, Error = "Failed to Load"}
@@ -307,7 +313,7 @@ function dataFunc.OnServerInvoke(player, data)
 			CurrentState.LastUpdateTimestamp = workspace:GetServerTimeNow()
 			broadcastState()
 		end
-		return {Success = true}
+		return successResponse()
 
 	elseif data.Action == "Volume" then
 		local vol = tonumber(data.Value)
@@ -317,7 +323,7 @@ function dataFunc.OnServerInvoke(player, data)
 			setPropertySafe(currentPlayer, "Volume", applied)
 			CurrentState.Volume = applied
 			broadcastState()
-			return {Success = true, Volume = applied}
+			return successResponse()
 		end
 
 	elseif data.Action == "Pitch" then
@@ -330,13 +336,13 @@ function dataFunc.OnServerInvoke(player, data)
 			CurrentState.StartPosition = getPropertySafe(currentPlayer, "TimePosition", 0)
 			CurrentState.LastUpdateTimestamp = workspace:GetServerTimeNow()
 			broadcastState()
-			return {Success = true, Pitch = newSpeed}
+			return successResponse()
 		end
 
 	elseif data.Action == "Loop" then
 		local newLooping = not getPropertySafe(currentPlayer, "Looping", true)
 		setPropertySafe(currentPlayer, "Looping", newLooping)
-		return {Success = true, IsLooping = newLooping}
+		return successResponse()
 
 	elseif data.Action == "Mount" then
 		local existingMount = char:FindFirstChild(MOUNT_NAME)
@@ -347,8 +353,8 @@ function dataFunc.OnServerInvoke(player, data)
 				setPropertySafe(toolPlayer, "Asset", getPropertySafe(mountPlayer, "Asset", ""))
 			end
 			setPropertySafe(toolPlayer, "TimePosition", getPropertySafe(mountPlayer, "TimePosition", 0))
-			setPropertySafe(toolPlayer, "PlaybackSpeed", getPropertySafe(mountPlayer, "PlaybackSpeed", 1))
-			setPropertySafe(toolPlayer, "Volume", getPropertySafe(mountPlayer, "Volume", 0.5))
+			setPropertySafe(toolPlayer, "PlaybackSpeed", CurrentState.Pitch)
+			setPropertySafe(toolPlayer, "Volume", CurrentState.Volume)
 			setPropertySafe(toolPlayer, "Looping", getPropertySafe(mountPlayer, "Looping", true))
 			if CurrentState.IsPlaying then
 				toolPlayer:Play()
@@ -356,7 +362,7 @@ function dataFunc.OnServerInvoke(player, data)
 				toolPlayer:Pause()
 			end
 			existingMount:Destroy()
-			return {Success = true, IsMounted = false}
+			return successResponse()
 		else
 			local torso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
 			if not torso then
@@ -383,17 +389,17 @@ function dataFunc.OnServerInvoke(player, data)
 			local toolPlayer = ensureAudioRig(handle)
 			setPropertySafe(mountPlayer, "Asset", getPropertySafe(toolPlayer, "Asset", ""))
 			setPropertySafe(mountPlayer, "TimePosition", getPropertySafe(toolPlayer, "TimePosition", 0))
-			setPropertySafe(mountPlayer, "PlaybackSpeed", getPropertySafe(toolPlayer, "PlaybackSpeed", 1))
-			setPropertySafe(mountPlayer, "Volume", getPropertySafe(toolPlayer, "Volume", 0.5))
+			setPropertySafe(mountPlayer, "PlaybackSpeed", CurrentState.Pitch)
+			setPropertySafe(mountPlayer, "Volume", CurrentState.Volume)
 			setPropertySafe(mountPlayer, "Looping", getPropertySafe(toolPlayer, "Looping", true))
 
 			if CurrentState.IsPlaying then
 				mountPlayer:Play()
 				toolPlayer:Stop()
 			end
-			return {Success = true, IsMounted = true}
+			return successResponse()
 		end
 	end
 
-	return {Success = true}
+	return successResponse()
 end
