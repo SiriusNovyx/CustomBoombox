@@ -21,7 +21,7 @@ local PLAYER_NAME = "BoomboxAudioPlayer"
 local EMITTER_NAME = "BoomboxAudioEmitter"
 local WIRE_NAME = "BoomboxAudioWire"
 
-local CurrentState = {Name = "Ready", Id = "", IsPlaying = false, StartPosition = 0, LastUpdateTimestamp = 0}
+local CurrentState = {Name = "Ready", Id = "", IsPlaying = false, StartPosition = 0, LastUpdateTimestamp = 0, PlaybackSpeed = 1}
 
 local function setPropertySafe(instance, propertyName, value)
 	pcall(function()
@@ -147,6 +147,7 @@ function dataFunc.OnServerInvoke(player, data)
 			StartPosition = CurrentState.StartPosition,
 			LastUpdateTimestamp = CurrentState.LastUpdateTimestamp,
 			Status = (CurrentState.IsPlaying and "Playing" or "Paused"),
+			PlaybackSpeed = CurrentState.PlaybackSpeed,
 		}
 
 	elseif data.Action == "SaveSong" then
@@ -210,6 +211,7 @@ function dataFunc.OnServerInvoke(player, data)
 			CurrentState.StartPosition = currentTime
 		end
 
+		CurrentState.PlaybackSpeed = getPropertySafe(currentPlayer, "PlaybackSpeed", 1)
 		CurrentState.LastUpdateTimestamp = workspace:GetServerTimeNow()
 		currentPlayer:Play()
 		broadcastState()
@@ -267,6 +269,7 @@ function dataFunc.OnServerInvoke(player, data)
 			CurrentState.Id = cleanId
 			CurrentState.IsPlaying = true
 			CurrentState.StartPosition = startPos
+			CurrentState.PlaybackSpeed = getPropertySafe(currentPlayer, "PlaybackSpeed", 1)
 			CurrentState.LastUpdateTimestamp = workspace:GetServerTimeNow()
 			broadcastState()
 			return {Success = true, Name = songName}
@@ -300,7 +303,13 @@ function dataFunc.OnServerInvoke(player, data)
 	elseif data.Action == "Pitch" then
 		local pitch = tonumber(data.Value)
 		if pitch then
-			setPropertySafe(currentPlayer, "PlaybackSpeed", math.clamp(pitch, 0.5, 2.0))
+			local newSpeed = math.clamp(pitch, 0.5, 2.0)
+			setPropertySafe(currentPlayer, "PlaybackSpeed", newSpeed)
+			CurrentState.PlaybackSpeed = newSpeed
+			CurrentState.StartPosition = getPropertySafe(currentPlayer, "TimePosition", 0)
+			CurrentState.LastUpdateTimestamp = workspace:GetServerTimeNow()
+			broadcastState()
+			return {Success = true, PlaybackSpeed = newSpeed}
 		end
 
 	elseif data.Action == "Loop" then

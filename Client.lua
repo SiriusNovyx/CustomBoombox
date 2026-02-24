@@ -4,6 +4,8 @@ local userInputService = game:GetService("UserInputService")
 local contentProvider = game:GetService("ContentProvider") 
 local camera = workspace.CurrentCamera
 local tweenService = game:GetService("TweenService")
+
+local BlurController = require(script.Parent:WaitForChild("BlurController"))
  
 local tool = script.Parent
 local handle = tool:WaitForChild("Handle")
@@ -30,7 +32,7 @@ local gui, mainFrame, contentFrame, topBar, loadingFrame
 local trafficRed, trafficYellow, trafficGreen
 local idInput, volInput, pitchInput
 local loadBtn, saveBtn
-local playBtn, pauseBtn, stopBtn, loopBtn, mountBtn
+local playBtn, stopBtn, loopBtn, mountBtn
 local timelineBG, timelineFill, timelineKnob
 local timeLabelLeft, timeLabelRight, syncLabel -- [NEW] syncLabel
 local playlistFrame, playlistScroll
@@ -53,13 +55,14 @@ local timeOffset = 0
 local smoothedLoudness = 0 
 local isLoading = false 
 local isActionCooldown = false 
-local isMinimized = false
+local minimizeState = 0
  
 -- Global State for Sync
 local globalState = {
 IsPlaying = false,
 StartPosition = 0,
-LastUpdateTimestamp = 0
+LastUpdateTimestamp = 0,
+PlaybackSpeed = 1
 }
  
 -- Safety
@@ -68,6 +71,7 @@ local lockDuration = 5
  
 -- Animation
 local currentAnimTrack = nil
+local activeBlur = nil
  
 -- === CUSTOM DRAGGER ===
 local function makeDraggable(guiObj)
@@ -186,6 +190,7 @@ local function makeDraggable(guiObj)
                     globalState.IsPlaying = state.IsPlaying
                     globalState.StartPosition = state.StartPosition or 0
                     globalState.LastUpdateTimestamp = state.LastUpdateTimestamp or 0
+                    globalState.PlaybackSpeed = state.PlaybackSpeed or 1
  
                     if state.Name then currentSongName = state.Name end
                     if state.Id then idBox.Text = state.Id end
@@ -210,7 +215,7 @@ local function makeDraggable(guiObj)
                         if not isAudioPlaying(sound) then sound:Play() end
 
                         local timePassed = workspace:GetServerTimeNow() - state.LastUpdateTimestamp
-                        local targetTime = state.StartPosition + timePassed
+                        local targetTime = state.StartPosition + (timePassed * (state.PlaybackSpeed or 1))
                         local trackLength = getTrackLength(sound)
                         if trackLength > 0 then
                             if isAudioLooping(sound) then targetTime = targetTime % trackLength else targetTime = math.clamp(targetTime, 0, trackLength) end
@@ -247,6 +252,7 @@ local function makeDraggable(guiObj)
                                 end
  
                                     -- === GUI CREATION ===
+                                    local inputRow, ctrlRow, lowerRow, plFrame, vizArea, scrollClip
                                     function createGui()
                                         if player:WaitForChild("PlayerGui"):FindFirstChild("BoomboxUI_Ultimate") then player.PlayerGui.BoomboxUI_Ultimate:Destroy() end
  
@@ -259,11 +265,14 @@ local function makeDraggable(guiObj)
                                         mainFrame.Size = UDim2.new(0, 320, 0, 450)
                                         mainFrame.Position = UDim2.new(0.5, -160, 0.5, -225)
                                         mainFrame.BackgroundColor3 = THEME.BG
-                                        mainFrame.BackgroundTransparency = 0.1
+                                        mainFrame.BackgroundTransparency = 0.4
                                         mainFrame:SetAttribute("Locked", false)
                                         makeDraggable(mainFrame)
                                         createRound(mainFrame, 16)
                                         createStroke(mainFrame, 0.8, 1)
+
+                                        if activeBlur then activeBlur:Destroy(); activeBlur = nil end
+                                        activeBlur = BlurController.new(mainFrame, "Rectangle")
                                         
                                         uiScale = Instance.new("UIScale", mainFrame)
 
@@ -304,7 +313,7 @@ local function makeDraggable(guiObj)
                                         topBar.Visible = false
                                         contentFrame.Visible = false
  
-                                        local vizArea = Instance.new("Frame", contentFrame)
+                                        vizArea = Instance.new("Frame", contentFrame)
                                         vizArea.Size = UDim2.new(1, 0, 0, 60)
                                         vizArea.BackgroundColor3 = Color3.fromRGB(0,0,0)
                                         vizArea.BackgroundTransparency = 0.5
@@ -317,7 +326,7 @@ local function makeDraggable(guiObj)
                                         local vizLayout = Instance.new("UIListLayout", vizContainer); vizLayout.FillDirection = Enum.FillDirection.Horizontal; vizLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center; vizLayout.VerticalAlignment = Enum.VerticalAlignment.Center; vizLayout.Padding = UDim.new(0, 3)
                                         for i=1, 20 do local bar = Instance.new("Frame", vizContainer); bar.Size = UDim2.new(0, 8, 0, 5); bar.BackgroundColor3 = THEME.Text; bar.BackgroundTransparency = 0.4; createRound(bar, 2); table.insert(vizBars, bar) end
  
-                                        local scrollClip = Instance.new("Frame", contentFrame)
+                                        scrollClip = Instance.new("Frame", contentFrame)
                                         scrollClip.Size = UDim2.new(1, 0, 0, 25)
                                         scrollClip.Position = UDim2.new(0, 0, 0, 70)
                                         scrollClip.BackgroundTransparency = 1
@@ -355,26 +364,25 @@ local function makeDraggable(guiObj)
                                         syncLabel.TextSize = 11
  
                                         -- [SHIFTED DOWN] All elements moved by +15 pixels
-                                        local inputRow = Instance.new("Frame", contentFrame); inputRow.Size = UDim2.new(1, 0, 0, 35); inputRow.Position = UDim2.new(0, 0, 0, 160); inputRow.BackgroundTransparency = 1
+                                        inputRow = Instance.new("Frame", contentFrame); inputRow.Size = UDim2.new(1, 0, 0, 35); inputRow.Position = UDim2.new(0, 0, 0, 160); inputRow.BackgroundTransparency = 1
                                         idBox = Instance.new("TextBox", inputRow); idBox.Size = UDim2.new(0.65, 0, 1, 0); idBox.BackgroundColor3 = Color3.fromRGB(40,40,40); idBox.PlaceholderText = "Song ID"; idBox.Text = ""; idBox.TextColor3 = THEME.Text; idBox.PlaceholderColor3 = Color3.fromRGB(150,150,150); idBox.Font = Enum.Font.Gotham; createRound(idBox, 8)
                                         loadBtn = Instance.new("TextButton", inputRow); loadBtn.Size = UDim2.new(0.15, 0, 1, 0); loadBtn.Position = UDim2.new(0.67, 0, 0, 0); loadBtn.BackgroundColor3 = THEME.Accent; loadBtn.Text = "LOAD"; loadBtn.TextColor3 = THEME.Text; loadBtn.Font = Enum.Font.GothamMedium; loadBtn.TextSize = 14; loadBtn.TextScaled = false; createRound(loadBtn, 8)
                                         saveBtn = Instance.new("TextButton", inputRow); saveBtn.Size = UDim2.new(0.15, 0, 1, 0); saveBtn.Position = UDim2.new(0.84, 0, 0, 0); saveBtn.BackgroundColor3 = Color3.fromRGB(60,60,60); saveBtn.Text = "SAVE"; saveBtn.TextColor3 = THEME.Text; saveBtn.Font = Enum.Font.GothamMedium; saveBtn.TextSize = 14; saveBtn.TextScaled = false; createRound(saveBtn, 8)
  
-                                        local ctrlRow = Instance.new("Frame", contentFrame); ctrlRow.Size = UDim2.new(1, 0, 0, 45); ctrlRow.Position = UDim2.new(0, 0, 0, 210); ctrlRow.BackgroundTransparency = 1
+                                        ctrlRow = Instance.new("Frame", contentFrame); ctrlRow.Size = UDim2.new(1, 0, 0, 45); ctrlRow.Position = UDim2.new(0, 0, 0, 210); ctrlRow.BackgroundTransparency = 1
                                         local ctrlLayout = Instance.new("UIListLayout", ctrlRow); ctrlLayout.FillDirection = Enum.FillDirection.Horizontal; ctrlLayout.Padding = UDim.new(0, 10); ctrlLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
                                         local function createCtrlBtn(text, color) local b = Instance.new("TextButton", ctrlRow); b.Size = UDim2.new(0, 60, 1, 0); b.BackgroundColor3 = color or Color3.fromRGB(50,50,50); b.Text = text; b.TextColor3 = THEME.Text; b.Font = Enum.Font.GothamMedium; b.TextSize = 14; b.TextScaled = false; createRound(b, 10); return b end
                                         
                                         resumeBtn = createCtrlBtn("PLAY", THEME.Green)
-                                        pauseBtn = createCtrlBtn("PAUSE", THEME.Yellow)
                                         stopBtn = createCtrlBtn("STOP", THEME.Red)
                                         loopBtn = createCtrlBtn("LOOP", Color3.fromRGB(80,80,200))
                                         
-                                        local lowerRow = Instance.new("Frame", contentFrame); lowerRow.Size = UDim2.new(1, 0, 0, 30); lowerRow.Position = UDim2.new(0, 0, 0, 270); lowerRow.BackgroundTransparency = 1
+                                        lowerRow = Instance.new("Frame", contentFrame); lowerRow.Size = UDim2.new(1, 0, 0, 30); lowerRow.Position = UDim2.new(0, 0, 0, 270); lowerRow.BackgroundTransparency = 1
                                         volBox = Instance.new("TextBox", lowerRow); volBox.Size = UDim2.new(0.3, 0, 1, 0); volBox.BackgroundColor3 = Color3.fromRGB(40,40,40); volBox.Text = "0.5"; volBox.PlaceholderText = "Vol"; volBox.TextColor3 = THEME.Text; createRound(volBox, 6)
                                         pitchBox = Instance.new("TextBox", lowerRow); pitchBox.Size = UDim2.new(0.3, 0, 1, 0); pitchBox.Position = UDim2.new(0.35, 0, 0, 0); pitchBox.BackgroundColor3 = Color3.fromRGB(40,40,40); pitchBox.Text = "1"; pitchBox.PlaceholderText = "Pitch"; pitchBox.TextColor3 = THEME.Text; createRound(pitchBox, 6)
                                         mountBtn = Instance.new("TextButton", lowerRow); mountBtn.Size = UDim2.new(0.3, 0, 1, 0); mountBtn.Position = UDim2.new(0.7, 0, 0, 0); mountBtn.BackgroundColor3 = Color3.fromRGB(60,60,60); mountBtn.Text = "Mount"; mountBtn.TextColor3 = THEME.Text; createRound(mountBtn, 6)
  
-                                        local plFrame = Instance.new("Frame", contentFrame); plFrame.Size = UDim2.new(1, 0, 0, 110); plFrame.Position = UDim2.new(0, 0, 0, 310); plFrame.BackgroundColor3 = Color3.fromRGB(0,0,0); plFrame.BackgroundTransparency = 0.6; createRound(plFrame, 8)
+                                        plFrame = Instance.new("Frame", contentFrame); plFrame.Size = UDim2.new(1, 0, 0, 110); plFrame.Position = UDim2.new(0, 0, 0, 310); plFrame.BackgroundColor3 = Color3.fromRGB(0,0,0); plFrame.BackgroundTransparency = 0.6; createRound(plFrame, 8)
                                         
                                         playlistScroll = Instance.new("ScrollingFrame", plFrame)
                                         playlistScroll.Size = UDim2.new(1, -10, 1, -10)
@@ -394,16 +402,34 @@ local function makeDraggable(guiObj)
                                         trafficRed.MouseButton1Click:Connect(function() mainFrame.Visible = false; openBtn.Visible = true end)
                                             openBtn.MouseButton1Click:Connect(function() mainFrame.Visible = true; openBtn.Visible = false end)
                                                 trafficYellow.MouseButton1Click:Connect(function()
-                                                    isMinimized = not isMinimized
-                                                    if isMinimized then mainFrame:TweenSize(UDim2.new(0, 320, 0, 30), "Out", "Quad", 0.3, true); contentFrame.Visible = false
-                                                    else mainFrame:TweenSize(UDim2.new(0, 320, 0, 450), "Out", "Quad", 0.3, true); contentFrame.Visible = true end
-                                                    end)
+                                                    minimizeState = (minimizeState + 1) % 4
+
+                                                    if minimizeState == 1 then
+                                                        contentFrame.Visible = true
+                                                        inputRow.Visible = false; ctrlRow.Visible = false; lowerRow.Visible = false; plFrame.Visible = false; syncLabel.Visible = false
+                                                        vizArea.Visible = true; scrollClip.Visible = true; timelineBG.Visible = true; timeLabelLeft.Visible = true; timeLabelRight.Visible = true
+                                                        mainFrame:TweenSize(UDim2.new(0, 320, 0, 160), "Out", "Quad", 0.3, true)
+                                                    elseif minimizeState == 2 then
+                                                        contentFrame.Visible = true
+                                                        inputRow.Visible = false; ctrlRow.Visible = false; lowerRow.Visible = false; plFrame.Visible = false; syncLabel.Visible = false
+                                                        vizArea.Visible = true; scrollClip.Visible = true
+                                                        timelineBG.Visible = false; timeLabelLeft.Visible = false; timeLabelRight.Visible = false
+                                                        mainFrame:TweenSize(UDim2.new(0, 320, 0, 110), "Out", "Quad", 0.3, true)
+                                                    elseif minimizeState == 3 then
+                                                        contentFrame.Visible = false
+                                                        mainFrame:TweenSize(UDim2.new(0, 320, 0, 40), "Out", "Quad", 0.3, true)
+                                                    else
+                                                        contentFrame.Visible = true
+                                                        inputRow.Visible = true; ctrlRow.Visible = true; lowerRow.Visible = true; plFrame.Visible = true; syncLabel.Visible = true
+                                                        vizArea.Visible = true; scrollClip.Visible = true; timelineBG.Visible = true; timeLabelLeft.Visible = true; timeLabelRight.Visible = true
+                                                        mainFrame:TweenSize(UDim2.new(0, 320, 0, 450), "Out", "Quad", 0.3, true)
+                                                    end
+                                                end)
                                                         trafficGreen.MouseButton1Click:Connect(function() local locked = mainFrame:GetAttribute("Locked"); mainFrame:SetAttribute("Locked", not locked); trafficGreen.Text = locked and "" or "??" end)
                                                             loadBtn.MouseButton1Click:Connect(loadBtnLink)
                                                             
                                                             local function triggerCooldown() isActionCooldown = true; task.delay(COOLDOWN_TIME, function() isActionCooldown = false end) end
                                                             resumeBtn.MouseButton1Click:Connect(function() if isActionCooldown then return end; local s = getSound(); if s then local length = getTrackLength(s); local currentPos = readPropSafe(s, "TimePosition", 0); if length > 0 then writePropSafe(s, "TimePosition", math.min(currentPos + 0.5, length)) end; s:Play() end; dataFunc:InvokeServer({Action = "Play"}); triggerCooldown() end)
-                                                                pauseBtn.MouseButton1Click:Connect(function() if isActionCooldown then return end; dataFunc:InvokeServer({Action = "Pause"}); triggerCooldown() end)
                                                                     stopBtn.MouseButton1Click:Connect(function() dataFunc:InvokeServer({Action = "Stop"}) end)
                                                                         loopBtn.MouseButton1Click:Connect(function() local r = dataFunc:InvokeServer({Action = "Loop"}); if r.Success then loopBtn.BackgroundColor3 = r.IsLooping and THEME.Accent or Color3.fromRGB(80,80,200) end end)
                                                                             mountBtn.MouseButton1Click:Connect(function() dataFunc:InvokeServer({Action = "Mount"}) end)
@@ -497,7 +523,7 @@ local function makeDraggable(guiObj)
 	                                                                                                                                                for i, bar in ipairs(vizBars) do
 	                                                                                                                                                    local sampleIndex = math.clamp(math.floor(((i - 1) / math.max(#vizBars - 1, 1)) * math.max(spectrumCount - 1, 0)) + 1, 1, math.max(spectrumCount, 1))
 	                                                                                                                                                    local amplitude = spectrumCount > 0 and (spectrum[sampleIndex] or 0) or 0
-	                                                                                                                                                    local targetHeight = math.clamp(4 + (amplitude * 800), 4, 80)
+	                                                                                                                                                    local targetHeight = math.clamp(4 + (amplitude * 2500), 4, 100)
 	                                                                                                                                                    bar.Size = bar.Size:Lerp(UDim2.new(0, 8, 0, targetHeight), 0.25)
 	                                                                                                                                                end
 	                                                                                                                                            else
@@ -512,7 +538,7 @@ local function makeDraggable(guiObj)
 	                                                                                                                                            local soundLength = sound and getTrackLength(sound) or 0
 	                                                                                                                                            if globalState.IsPlaying and sound and isAudioPlaying(sound) and soundLength > 0 then
 	                                                                                                                                                local timePassed = workspace:GetServerTimeNow() - globalState.LastUpdateTimestamp
-	                                                                                                                                                local expectedTime = globalState.StartPosition + timePassed
+	                                                                                                                                                local expectedTime = globalState.StartPosition + (timePassed * globalState.PlaybackSpeed)
 	                                                                                                                                                if isAudioLooping(sound) then expectedTime = expectedTime % soundLength else expectedTime = math.clamp(expectedTime, 0, soundLength) end
 
 	                                                                                                                                                local currentPos = readPropSafe(sound, "TimePosition", 0)
@@ -536,4 +562,4 @@ local function makeDraggable(guiObj)
 	                                                                                                                                    end)
  
                                                                                                                                     tool.Equipped:Connect(function() if not gui then createGui() end; gui.Parent = player:WaitForChild("PlayerGui"); setupAnalyzer(); local state = dataFunc:InvokeServer({Action = "GetState"}); if state and state.Success then syncAudio(state) end end)
-                                                                                                                                        tool.Unequipped:Connect(function() if gui then gui.Parent = nil end; if analyzerWire then analyzerWire:Destroy(); analyzerWire = nil end; if localAnalyzer then localAnalyzer:Destroy(); localAnalyzer = nil end end)
+                                                                                                                                        tool.Unequipped:Connect(function() if activeBlur then activeBlur:Destroy(); activeBlur = nil end; if gui then gui.Parent = nil end; if analyzerWire then analyzerWire:Destroy(); analyzerWire = nil end; if localAnalyzer then localAnalyzer:Destroy(); localAnalyzer = nil end end)
