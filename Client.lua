@@ -62,7 +62,9 @@ local globalState = {
 IsPlaying = false,
 StartPosition = 0,
 LastUpdateTimestamp = 0,
-PlaybackSpeed = 1
+PlaybackSpeed = 1,
+Volume = 1,
+Pitch = 1
 }
  
 -- Safety
@@ -191,6 +193,17 @@ local function makeDraggable(guiObj)
                     globalState.StartPosition = state.StartPosition or 0
                     globalState.LastUpdateTimestamp = state.LastUpdateTimestamp or 0
                     globalState.PlaybackSpeed = state.PlaybackSpeed or 1
+                    globalState.Volume = state.Volume or globalState.Volume or 1
+                    globalState.Pitch = state.Pitch or globalState.Pitch or 1
+
+                    local volumeText = tostring(globalState.Volume)
+                    if volBox and volBox.Text ~= volumeText then
+                        volBox.Text = volumeText
+                    end
+                    local pitchText = tostring(globalState.Pitch)
+                    if pitchBox and pitchBox.Text ~= pitchText then
+                        pitchBox.Text = pitchText
+                    end
  
                     if state.Name then currentSongName = state.Name end
                     if state.Id then idBox.Text = state.Id end

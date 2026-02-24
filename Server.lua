@@ -21,7 +21,16 @@ local PLAYER_NAME = "BoomboxAudioPlayer"
 local EMITTER_NAME = "BoomboxAudioEmitter"
 local WIRE_NAME = "BoomboxAudioWire"
 
-local CurrentState = {Name = "Ready", Id = "", IsPlaying = false, StartPosition = 0, LastUpdateTimestamp = 0, PlaybackSpeed = 1}
+local CurrentState = {
+	Name = "Ready",
+	Id = "",
+	IsPlaying = false,
+	StartPosition = 0,
+	LastUpdateTimestamp = 0,
+	PlaybackSpeed = 1,
+	Volume = 0.5,
+	Pitch = 1,
+}
 
 local function setPropertySafe(instance, propertyName, value)
 	pcall(function()
@@ -124,8 +133,22 @@ local function getTimeLength(audioPlayer)
 	return 0
 end
 
+local function getStatePayload()
+	return {
+		Name = CurrentState.Name,
+		Id = CurrentState.Id,
+		IsPlaying = CurrentState.IsPlaying,
+		StartPosition = CurrentState.StartPosition,
+		LastUpdateTimestamp = CurrentState.LastUpdateTimestamp,
+		Status = (CurrentState.IsPlaying and "Playing" or "Paused"),
+		PlaybackSpeed = CurrentState.PlaybackSpeed,
+		Volume = CurrentState.Volume,
+		Pitch = CurrentState.Pitch,
+	}
+end
+
 local function broadcastState()
-	replication:FireAllClients(CurrentState)
+	replication:FireAllClients(getStatePayload())
 end
 
 -- Ensure rig exists on tool handle at startup.
@@ -139,16 +162,9 @@ function dataFunc.OnServerInvoke(player, data)
 	local currentPlayer = getCurrentPlayerForCharacter(char)
 
 	if data.Action == "GetState" then
-		return {
-			Success = true,
-			Name = CurrentState.Name,
-			Id = CurrentState.Id,
-			IsPlaying = CurrentState.IsPlaying,
-			StartPosition = CurrentState.StartPosition,
-			LastUpdateTimestamp = CurrentState.LastUpdateTimestamp,
-			Status = (CurrentState.IsPlaying and "Playing" or "Paused"),
-			PlaybackSpeed = CurrentState.PlaybackSpeed,
-		}
+		local payload = getStatePayload()
+		payload.Success = true
+		return payload
 
 	elseif data.Action == "SaveSong" then
 		local resultStatus = "Error"
@@ -297,7 +313,11 @@ function dataFunc.OnServerInvoke(player, data)
 		local vol = tonumber(data.Value)
 		if vol then
 			local isOwner = OWNER_IDS[player.UserId]
-			setPropertySafe(currentPlayer, "Volume", math.clamp(vol, 0, isOwner and 20 or 5))
+			local applied = math.clamp(vol, 0, isOwner and 20 or 5)
+			setPropertySafe(currentPlayer, "Volume", applied)
+			CurrentState.Volume = applied
+			broadcastState()
+			return {Success = true, Volume = applied}
 		end
 
 	elseif data.Action == "Pitch" then
@@ -306,10 +326,11 @@ function dataFunc.OnServerInvoke(player, data)
 			local newSpeed = math.clamp(pitch, 0.5, 2.0)
 			setPropertySafe(currentPlayer, "PlaybackSpeed", newSpeed)
 			CurrentState.PlaybackSpeed = newSpeed
+			CurrentState.Pitch = newSpeed
 			CurrentState.StartPosition = getPropertySafe(currentPlayer, "TimePosition", 0)
 			CurrentState.LastUpdateTimestamp = workspace:GetServerTimeNow()
 			broadcastState()
-			return {Success = true, PlaybackSpeed = newSpeed}
+			return {Success = true, Pitch = newSpeed}
 		end
 
 	elseif data.Action == "Loop" then
