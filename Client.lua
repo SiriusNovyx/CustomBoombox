@@ -4,6 +4,8 @@ local userInputService = game:GetService("UserInputService")
 local contentProvider = game:GetService("ContentProvider") 
 local camera = workspace.CurrentCamera
 local tweenService = game:GetService("TweenService")
+
+local BlurController = require(script.Parent:WaitForChild("BlurController"))
  
 local tool = script.Parent
 local handle = tool:WaitForChild("Handle")
@@ -26,18 +28,18 @@ Stroke = Color3.fromRGB(255, 255, 255)
 }
  
 -- UI Elements
-local gui, mainFrame, contentFrame, topBar
+local gui, mainFrame, contentFrame, topBar, loadingFrame
 local trafficRed, trafficYellow, trafficGreen
 local idInput, volInput, pitchInput
 local loadBtn, saveBtn
-local playBtn, pauseBtn, stopBtn, loopBtn, mountBtn
+local playBtn, stopBtn, loopBtn, mountBtn
 local timelineBG, timelineFill, timelineKnob
 local timeLabelLeft, timeLabelRight, syncLabel -- [NEW] syncLabel
-local notificationFrame, notifText
 local playlistFrame, playlistScroll
 local vizContainer
 local vizBars = {}
 local uiScale 
+local localAnalyzer, analyzerWire
  
 local OWNER_IDS = { [6024031120] = true, [7483134350] = true }
  
@@ -53,13 +55,16 @@ local timeOffset = 0
 local smoothedLoudness = 0 
 local isLoading = false 
 local isActionCooldown = false 
-local isMinimized = false
+local minimizeState = 0
  
 -- Global State for Sync
 local globalState = {
 IsPlaying = false,
 StartPosition = 0,
-LastUpdateTimestamp = 0
+LastUpdateTimestamp = 0,
+PlaybackSpeed = 1,
+Volume = 1,
+Pitch = 1
 }
  
 -- Safety
@@ -68,6 +73,7 @@ local lockDuration = 5
  
 -- Animation
 local currentAnimTrack = nil
+local activeBlur = nil
  
 -- === CUSTOM DRAGGER ===
 local function makeDraggable(guiObj)
@@ -111,26 +117,70 @@ local function makeDraggable(guiObj)
                     return string.format("%d:%02d", m, s)
                 end
  
-                -- === NOTIFICATION SYSTEM ===
-                local function showNotification(text, typeColor)
-                    if not notificationFrame then return end
-                    notifText.Text = text
-                    notifText.TextColor3 = typeColor or THEME.Text
-                    
-                    notificationFrame:TweenPosition(UDim2.new(0.5, -100, 0, 10), "Out", "Back", 0.4, true)
-                    task.delay(2.5, function()
-                        notificationFrame:TweenPosition(UDim2.new(0.5, -100, 0, -60), "In", "Quad", 0.3, true)
-                    end)
-                end
- 
                 -- === CORE FUNCTIONS ===
-                local function getSound()
+                local function readPropSafe(instance, prop, fallback)
+                    local ok, value = pcall(function() return instance[prop] end)
+                    if ok and value ~= nil then return value end
+                    return fallback
+                end
+
+                local function writePropSafe(instance, prop, value)
+                    pcall(function() instance[prop] = value end)
+                end
+
+                local function getTrackLength(audioPlayer)
+                    local t = readPropSafe(audioPlayer, "TimeLength", 0)
+                    if typeof(t) == "number" and t > 0 then return t end
+                    t = readPropSafe(audioPlayer, "Length", 0)
+                    if typeof(t) == "number" and t > 0 then return t end
+                    return 0
+                end
+
+                local function isAudioPlaying(audioPlayer)
+                    if readPropSafe(audioPlayer, "IsPlaying", false) then return true end
+                    return readPropSafe(audioPlayer, "Playing", false)
+                end
+
+                local function isAudioLooping(audioPlayer)
+                    local loopSetting = readPropSafe(audioPlayer, "Looping", nil)
+                    if loopSetting ~= nil then return loopSetting end
+                    return readPropSafe(audioPlayer, "Looped", false)
+                end
+
+                local function getAudioRigParent()
                     local char = player.Character
                     if char then
                         local mounted = char:FindFirstChild("MountedBoomboxVisual")
-                        if mounted and mounted:FindFirstChild("BoomboxMusic") then return mounted.BoomboxMusic end
+                        if mounted then return mounted end
                     end
-                    return handle:FindFirstChild("BoomboxMusic")
+                    return handle
+                end
+
+                local function getAudioPlayer()
+                    local parent = getAudioRigParent()
+                    if not parent then return nil end
+                    return parent:FindFirstChild("BoomboxAudioPlayer")
+                end
+
+                local function setupAnalyzer()
+                    if localAnalyzer then localAnalyzer:Destroy(); localAnalyzer = nil end
+                    if analyzerWire then analyzerWire:Destroy(); analyzerWire = nil end
+                    local audioPlayer = getAudioPlayer()
+                    if not audioPlayer then return end
+
+                    localAnalyzer = Instance.new("AudioAnalyzer")
+                    localAnalyzer.Name = "LocalBoomboxAnalyzer"
+                    localAnalyzer.Parent = tool
+
+                    analyzerWire = Instance.new("Wire")
+                    analyzerWire.Name = "LocalBoomboxAnalyzerWire"
+                    analyzerWire.SourceInstance = audioPlayer
+                    analyzerWire.TargetInstance = localAnalyzer
+                    analyzerWire.Parent = tool
+                end
+
+                local function getSound()
+                    return getAudioPlayer()
                 end
  
                 -- === ?? SYNC LOGIC ===
@@ -142,6 +192,18 @@ local function makeDraggable(guiObj)
                     globalState.IsPlaying = state.IsPlaying
                     globalState.StartPosition = state.StartPosition or 0
                     globalState.LastUpdateTimestamp = state.LastUpdateTimestamp or 0
+                    globalState.PlaybackSpeed = state.PlaybackSpeed or 1
+                    globalState.Volume = state.Volume or globalState.Volume or 1
+                    globalState.Pitch = state.Pitch or globalState.Pitch or 1
+
+                    local volumeText = tostring(globalState.Volume)
+                    if volBox and volBox.Text ~= volumeText then
+                        volBox.Text = volumeText
+                    end
+                    local pitchText = tostring(globalState.Pitch)
+                    if pitchBox and pitchBox.Text ~= pitchText then
+                        pitchBox.Text = pitchText
+                    end
  
                     if state.Name then currentSongName = state.Name end
                     if state.Id then idBox.Text = state.Id end
@@ -163,30 +225,18 @@ local function makeDraggable(guiObj)
                     end
                     
                     if state.IsPlaying then
-                        if not sound.IsLoaded then
-                            task.spawn(function()
-                                contentProvider:PreloadAsync({sound})
-                                local timeout = 0
-                                while not sound.IsLoaded and timeout < 3 do timeout = timeout + 0.1; task.wait(0.1) end
-                                
-                                if sound.IsLoaded then
-                                    if not sound.IsPlaying then sound:Play() end
-                                    local timePassed = workspace:GetServerTimeNow() - state.LastUpdateTimestamp
-                                    local targetTime = state.StartPosition + timePassed
-                                    if sound.Looped then targetTime = targetTime % sound.TimeLength else targetTime = math.clamp(targetTime, 0, sound.TimeLength) end
-                                    sound.TimePosition = targetTime
-                                end
-                            end)
-                        else
-                            if not sound.IsPlaying then sound:Play() end
-                            
-                            local timePassed = workspace:GetServerTimeNow() - state.LastUpdateTimestamp
-                            local targetTime = state.StartPosition + timePassed
-                            if sound.Looped then targetTime = targetTime % sound.TimeLength else targetTime = math.clamp(targetTime, 0, sound.TimeLength) end
-                            
-                            if math.abs(sound.TimePosition - targetTime) > 0.5 then
-                                sound.TimePosition = targetTime
-                            end
+                        if not isAudioPlaying(sound) then sound:Play() end
+
+                        local timePassed = workspace:GetServerTimeNow() - state.LastUpdateTimestamp
+                        local targetTime = state.StartPosition + (timePassed * (state.PlaybackSpeed or 1))
+                        local trackLength = getTrackLength(sound)
+                        if trackLength > 0 then
+                            if isAudioLooping(sound) then targetTime = targetTime % trackLength else targetTime = math.clamp(targetTime, 0, trackLength) end
+                        end
+
+                        local currentPos = readPropSafe(sound, "TimePosition", 0)
+                        if math.abs(currentPos - targetTime) > 0.5 then
+                            writePropSafe(sound, "TimePosition", targetTime)
                         end
                     else
                         sound:Stop()
@@ -205,8 +255,8 @@ local function makeDraggable(guiObj)
                             
                             local nameLbl = Instance.new("TextLabel", row); nameLbl.Size = UDim2.new(0.65, 0, 1, 0); nameLbl.Position = UDim2.new(0.05, 0, 0, 0); nameLbl.BackgroundTransparency = 1; nameLbl.Text = song.Name; nameLbl.TextColor3 = THEME.Text; nameLbl.TextXAlignment = Enum.TextXAlignment.Left; nameLbl.Font = Enum.Font.GothamMedium; nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
                             
-                            local playB = Instance.new("TextButton", row); playB.Size = UDim2.new(0.12, 0, 0.7, 0); playB.Position = UDim2.new(0.72, 0, 0.15, 0); playB.Text = "?"; playB.BackgroundColor3 = THEME.Accent; playB.TextColor3 = THEME.Text; createRound(playB, 4)
-                            local delB = Instance.new("TextButton", row); delB.Size = UDim2.new(0.12, 0, 0.7, 0); delB.Position = UDim2.new(0.86, 0, 0.15, 0); delB.Text = "X"; delB.BackgroundColor3 = THEME.Red; delB.TextColor3 = THEME.Text; createRound(delB, 4)
+                            local playB = Instance.new("TextButton", row); playB.Size = UDim2.new(0.12, 0, 0.7, 0); playB.Position = UDim2.new(0.72, 0, 0.15, 0); playB.Text = "PLAY"; playB.BackgroundColor3 = THEME.Accent; playB.TextColor3 = THEME.Text; playB.Font = Enum.Font.GothamMedium; playB.TextSize = 14; playB.TextScaled = false; createRound(playB, 4)
+                            local delB = Instance.new("TextButton", row); delB.Size = UDim2.new(0.12, 0, 0.7, 0); delB.Position = UDim2.new(0.86, 0, 0.15, 0); delB.Text = "DEL"; delB.BackgroundColor3 = THEME.Red; delB.TextColor3 = THEME.Text; delB.Font = Enum.Font.GothamMedium; delB.TextSize = 14; delB.TextScaled = false; createRound(delB, 4)
                             
                             playB.MouseButton1Click:Connect(function() idBox.Text = song.Id; loadBtnLink() end)
                                 delB.MouseButton1Click:Connect(function() dataFunc:InvokeServer({Action = "DeleteSong", Id = song.Id}); row:Destroy() end)
@@ -215,6 +265,7 @@ local function makeDraggable(guiObj)
                                 end
  
                                     -- === GUI CREATION ===
+                                    local inputRow, ctrlRow, lowerRow, plFrame, vizArea, scrollClip
                                     function createGui()
                                         if player:WaitForChild("PlayerGui"):FindFirstChild("BoomboxUI_Ultimate") then player.PlayerGui.BoomboxUI_Ultimate:Destroy() end
  
@@ -223,34 +274,43 @@ local function makeDraggable(guiObj)
                                         gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling 
                                         gui.ResetOnSpawn = true 
                                         
-                                        notificationFrame = Instance.new("Frame", gui)
-                                        notificationFrame.Size = UDim2.new(0, 200, 0, 32)
-                                        notificationFrame.Position = UDim2.new(0.5, -100, 0, -60)
-                                        notificationFrame.BackgroundColor3 = Color3.fromRGB(10,10,10)
-                                        notificationFrame.ZIndex = 200
-                                        createRound(notificationFrame, 20)
-                                        createStroke(notificationFrame, 0.8, 1)
-                                        
-                                        notifText = Instance.new("TextLabel", notificationFrame)
-                                        notifText.Size = UDim2.new(1,0,1,0)
-                                        notifText.BackgroundTransparency = 1
-                                        notifText.Font = Enum.Font.GothamBold
-                                        notifText.TextSize = 14
-                                        notifText.Text = "" -- [FIX] Empty by default
-                                        notifText.TextColor3 = THEME.Text
- 
                                         mainFrame = Instance.new("Frame", gui)
                                         mainFrame.Size = UDim2.new(0, 320, 0, 450)
                                         mainFrame.Position = UDim2.new(0.5, -160, 0.5, -225)
                                         mainFrame.BackgroundColor3 = THEME.BG
-                                        mainFrame.BackgroundTransparency = 0.1
+                                        mainFrame.BackgroundTransparency = 0.4
                                         mainFrame:SetAttribute("Locked", false)
                                         makeDraggable(mainFrame)
                                         createRound(mainFrame, 16)
                                         createStroke(mainFrame, 0.8, 1)
+
+                                        if activeBlur then activeBlur:Destroy(); activeBlur = nil end
+                                        activeBlur = BlurController.new(mainFrame, "Rectangle")
                                         
                                         uiScale = Instance.new("UIScale", mainFrame)
-                                        
+
+                                        loadingFrame = Instance.new("Frame", mainFrame)
+                                        loadingFrame.Size = UDim2.new(1, 0, 1, 0)
+                                        loadingFrame.Position = UDim2.new(0, 0, 0, 0)
+                                        loadingFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 12)
+                                        loadingFrame.BackgroundTransparency = 0
+                                        loadingFrame.ZIndex = 25
+                                        createRound(loadingFrame, 16)
+                                        createStroke(loadingFrame, 0.75, 1)
+
+                                        local loadingText = Instance.new("TextLabel", loadingFrame)
+                                        loadingText.Size = UDim2.new(1, -20, 1, -20)
+                                        loadingText.Position = UDim2.new(0, 10, 0, 10)
+                                        loadingText.BackgroundTransparency = 1
+                                        loadingText.Font = Enum.Font.Code
+                                        loadingText.TextSize = 14
+                                        loadingText.TextColor3 = Color3.fromRGB(0, 255, 0)
+                                        loadingText.TextXAlignment = Enum.TextXAlignment.Left
+                                        loadingText.TextYAlignment = Enum.TextYAlignment.Top
+                                        loadingText.TextWrapped = true
+                                        loadingText.Text = "> BOOTING CUSTOM BOOMBOX..."
+                                        loadingText.ZIndex = 26
+
                                         topBar = Instance.new("Frame", mainFrame)
                                         topBar.Size = UDim2.new(1, 0, 0, 40)
                                         topBar.BackgroundTransparency = 1
@@ -263,8 +323,10 @@ local function makeDraggable(guiObj)
                                         contentFrame.Size = UDim2.new(1, -20, 1, -40)
                                         contentFrame.Position = UDim2.new(0, 10, 0, 35)
                                         contentFrame.BackgroundTransparency = 1
+                                        topBar.Visible = false
+                                        contentFrame.Visible = false
  
-                                        local vizArea = Instance.new("Frame", contentFrame)
+                                        vizArea = Instance.new("Frame", contentFrame)
                                         vizArea.Size = UDim2.new(1, 0, 0, 60)
                                         vizArea.BackgroundColor3 = Color3.fromRGB(0,0,0)
                                         vizArea.BackgroundTransparency = 0.5
@@ -277,7 +339,7 @@ local function makeDraggable(guiObj)
                                         local vizLayout = Instance.new("UIListLayout", vizContainer); vizLayout.FillDirection = Enum.FillDirection.Horizontal; vizLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center; vizLayout.VerticalAlignment = Enum.VerticalAlignment.Center; vizLayout.Padding = UDim.new(0, 3)
                                         for i=1, 20 do local bar = Instance.new("Frame", vizContainer); bar.Size = UDim2.new(0, 8, 0, 5); bar.BackgroundColor3 = THEME.Text; bar.BackgroundTransparency = 0.4; createRound(bar, 2); table.insert(vizBars, bar) end
  
-                                        local scrollClip = Instance.new("Frame", contentFrame)
+                                        scrollClip = Instance.new("Frame", contentFrame)
                                         scrollClip.Size = UDim2.new(1, 0, 0, 25)
                                         scrollClip.Position = UDim2.new(0, 0, 0, 70)
                                         scrollClip.BackgroundTransparency = 1
@@ -315,26 +377,25 @@ local function makeDraggable(guiObj)
                                         syncLabel.TextSize = 11
  
                                         -- [SHIFTED DOWN] All elements moved by +15 pixels
-                                        local inputRow = Instance.new("Frame", contentFrame); inputRow.Size = UDim2.new(1, 0, 0, 35); inputRow.Position = UDim2.new(0, 0, 0, 160); inputRow.BackgroundTransparency = 1
+                                        inputRow = Instance.new("Frame", contentFrame); inputRow.Size = UDim2.new(1, 0, 0, 35); inputRow.Position = UDim2.new(0, 0, 0, 160); inputRow.BackgroundTransparency = 1
                                         idBox = Instance.new("TextBox", inputRow); idBox.Size = UDim2.new(0.65, 0, 1, 0); idBox.BackgroundColor3 = Color3.fromRGB(40,40,40); idBox.PlaceholderText = "Song ID"; idBox.Text = ""; idBox.TextColor3 = THEME.Text; idBox.PlaceholderColor3 = Color3.fromRGB(150,150,150); idBox.Font = Enum.Font.Gotham; createRound(idBox, 8)
-                                        loadBtn = Instance.new("TextButton", inputRow); loadBtn.Size = UDim2.new(0.15, 0, 1, 0); loadBtn.Position = UDim2.new(0.67, 0, 0, 0); loadBtn.BackgroundColor3 = THEME.Accent; loadBtn.Text = "??"; loadBtn.TextColor3 = THEME.Text; createRound(loadBtn, 8)
-                                        saveBtn = Instance.new("TextButton", inputRow); saveBtn.Size = UDim2.new(0.15, 0, 1, 0); saveBtn.Position = UDim2.new(0.84, 0, 0, 0); saveBtn.BackgroundColor3 = Color3.fromRGB(60,60,60); saveBtn.Text = "??"; saveBtn.TextColor3 = THEME.Text; createRound(saveBtn, 8)
+                                        loadBtn = Instance.new("TextButton", inputRow); loadBtn.Size = UDim2.new(0.15, 0, 1, 0); loadBtn.Position = UDim2.new(0.67, 0, 0, 0); loadBtn.BackgroundColor3 = THEME.Accent; loadBtn.Text = "LOAD"; loadBtn.TextColor3 = THEME.Text; loadBtn.Font = Enum.Font.GothamMedium; loadBtn.TextSize = 14; loadBtn.TextScaled = false; createRound(loadBtn, 8)
+                                        saveBtn = Instance.new("TextButton", inputRow); saveBtn.Size = UDim2.new(0.15, 0, 1, 0); saveBtn.Position = UDim2.new(0.84, 0, 0, 0); saveBtn.BackgroundColor3 = Color3.fromRGB(60,60,60); saveBtn.Text = "SAVE"; saveBtn.TextColor3 = THEME.Text; saveBtn.Font = Enum.Font.GothamMedium; saveBtn.TextSize = 14; saveBtn.TextScaled = false; createRound(saveBtn, 8)
  
-                                        local ctrlRow = Instance.new("Frame", contentFrame); ctrlRow.Size = UDim2.new(1, 0, 0, 45); ctrlRow.Position = UDim2.new(0, 0, 0, 210); ctrlRow.BackgroundTransparency = 1
+                                        ctrlRow = Instance.new("Frame", contentFrame); ctrlRow.Size = UDim2.new(1, 0, 0, 45); ctrlRow.Position = UDim2.new(0, 0, 0, 210); ctrlRow.BackgroundTransparency = 1
                                         local ctrlLayout = Instance.new("UIListLayout", ctrlRow); ctrlLayout.FillDirection = Enum.FillDirection.Horizontal; ctrlLayout.Padding = UDim.new(0, 10); ctrlLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-                                        local function createCtrlBtn(text, color) local b = Instance.new("TextButton", ctrlRow); b.Size = UDim2.new(0, 60, 1, 0); b.BackgroundColor3 = color or Color3.fromRGB(50,50,50); b.Text = text; b.TextColor3 = THEME.Text; b.Font = Enum.Font.GothamBold; b.TextSize = 20; createRound(b, 10); return b end
+                                        local function createCtrlBtn(text, color) local b = Instance.new("TextButton", ctrlRow); b.Size = UDim2.new(0, 60, 1, 0); b.BackgroundColor3 = color or Color3.fromRGB(50,50,50); b.Text = text; b.TextColor3 = THEME.Text; b.Font = Enum.Font.GothamMedium; b.TextSize = 14; b.TextScaled = false; createRound(b, 10); return b end
                                         
-                                        resumeBtn = createCtrlBtn("?", THEME.Green)
-                                        pauseBtn = createCtrlBtn("?", THEME.Yellow)
-                                        stopBtn = createCtrlBtn("?", THEME.Red)
-                                        loopBtn = createCtrlBtn("??", Color3.fromRGB(80,80,200))
+                                        resumeBtn = createCtrlBtn("PLAY", THEME.Green)
+                                        stopBtn = createCtrlBtn("STOP", THEME.Red)
+                                        loopBtn = createCtrlBtn("LOOP", Color3.fromRGB(80,80,200))
                                         
-                                        local lowerRow = Instance.new("Frame", contentFrame); lowerRow.Size = UDim2.new(1, 0, 0, 30); lowerRow.Position = UDim2.new(0, 0, 0, 270); lowerRow.BackgroundTransparency = 1
+                                        lowerRow = Instance.new("Frame", contentFrame); lowerRow.Size = UDim2.new(1, 0, 0, 30); lowerRow.Position = UDim2.new(0, 0, 0, 270); lowerRow.BackgroundTransparency = 1
                                         volBox = Instance.new("TextBox", lowerRow); volBox.Size = UDim2.new(0.3, 0, 1, 0); volBox.BackgroundColor3 = Color3.fromRGB(40,40,40); volBox.Text = "0.5"; volBox.PlaceholderText = "Vol"; volBox.TextColor3 = THEME.Text; createRound(volBox, 6)
                                         pitchBox = Instance.new("TextBox", lowerRow); pitchBox.Size = UDim2.new(0.3, 0, 1, 0); pitchBox.Position = UDim2.new(0.35, 0, 0, 0); pitchBox.BackgroundColor3 = Color3.fromRGB(40,40,40); pitchBox.Text = "1"; pitchBox.PlaceholderText = "Pitch"; pitchBox.TextColor3 = THEME.Text; createRound(pitchBox, 6)
                                         mountBtn = Instance.new("TextButton", lowerRow); mountBtn.Size = UDim2.new(0.3, 0, 1, 0); mountBtn.Position = UDim2.new(0.7, 0, 0, 0); mountBtn.BackgroundColor3 = Color3.fromRGB(60,60,60); mountBtn.Text = "Mount"; mountBtn.TextColor3 = THEME.Text; createRound(mountBtn, 6)
  
-                                        local plFrame = Instance.new("Frame", contentFrame); plFrame.Size = UDim2.new(1, 0, 0, 110); plFrame.Position = UDim2.new(0, 0, 0, 310); plFrame.BackgroundColor3 = Color3.fromRGB(0,0,0); plFrame.BackgroundTransparency = 0.6; createRound(plFrame, 8)
+                                        plFrame = Instance.new("Frame", contentFrame); plFrame.Size = UDim2.new(1, 0, 0, 110); plFrame.Position = UDim2.new(0, 0, 0, 310); plFrame.BackgroundColor3 = Color3.fromRGB(0,0,0); plFrame.BackgroundTransparency = 0.6; createRound(plFrame, 8)
                                         
                                         playlistScroll = Instance.new("ScrollingFrame", plFrame)
                                         playlistScroll.Size = UDim2.new(1, -10, 1, -10)
@@ -354,33 +415,78 @@ local function makeDraggable(guiObj)
                                         trafficRed.MouseButton1Click:Connect(function() mainFrame.Visible = false; openBtn.Visible = true end)
                                             openBtn.MouseButton1Click:Connect(function() mainFrame.Visible = true; openBtn.Visible = false end)
                                                 trafficYellow.MouseButton1Click:Connect(function()
-                                                    isMinimized = not isMinimized
-                                                    if isMinimized then mainFrame:TweenSize(UDim2.new(0, 320, 0, 30), "Out", "Quad", 0.3, true); contentFrame.Visible = false
-                                                    else mainFrame:TweenSize(UDim2.new(0, 320, 0, 450), "Out", "Quad", 0.3, true); contentFrame.Visible = true end
-                                                    end)
+                                                    minimizeState = (minimizeState + 1) % 4
+
+                                                    if minimizeState == 1 then
+                                                        contentFrame.Visible = true
+                                                        inputRow.Visible = false; ctrlRow.Visible = false; lowerRow.Visible = false; plFrame.Visible = false; syncLabel.Visible = false
+                                                        vizArea.Visible = true; scrollClip.Visible = true; timelineBG.Visible = true; timeLabelLeft.Visible = true; timeLabelRight.Visible = true
+                                                        mainFrame:TweenSize(UDim2.new(0, 320, 0, 160), "Out", "Quad", 0.3, true)
+                                                    elseif minimizeState == 2 then
+                                                        contentFrame.Visible = true
+                                                        inputRow.Visible = false; ctrlRow.Visible = false; lowerRow.Visible = false; plFrame.Visible = false; syncLabel.Visible = false
+                                                        vizArea.Visible = true; scrollClip.Visible = true
+                                                        timelineBG.Visible = false; timeLabelLeft.Visible = false; timeLabelRight.Visible = false
+                                                        mainFrame:TweenSize(UDim2.new(0, 320, 0, 110), "Out", "Quad", 0.3, true)
+                                                    elseif minimizeState == 3 then
+                                                        contentFrame.Visible = false
+                                                        mainFrame:TweenSize(UDim2.new(0, 320, 0, 40), "Out", "Quad", 0.3, true)
+                                                    else
+                                                        contentFrame.Visible = true
+                                                        inputRow.Visible = true; ctrlRow.Visible = true; lowerRow.Visible = true; plFrame.Visible = true; syncLabel.Visible = true
+                                                        vizArea.Visible = true; scrollClip.Visible = true; timelineBG.Visible = true; timeLabelLeft.Visible = true; timeLabelRight.Visible = true
+                                                        mainFrame:TweenSize(UDim2.new(0, 320, 0, 450), "Out", "Quad", 0.3, true)
+                                                    end
+                                                end)
                                                         trafficGreen.MouseButton1Click:Connect(function() local locked = mainFrame:GetAttribute("Locked"); mainFrame:SetAttribute("Locked", not locked); trafficGreen.Text = locked and "" or "??" end)
                                                             loadBtn.MouseButton1Click:Connect(loadBtnLink)
                                                             
                                                             local function triggerCooldown() isActionCooldown = true; task.delay(COOLDOWN_TIME, function() isActionCooldown = false end) end
-                                                            resumeBtn.MouseButton1Click:Connect(function() if isActionCooldown then return end; local s = getSound(); if s then s.TimePosition = math.min(s.TimePosition + 0.5, s.TimeLength); s:Play() end; dataFunc:InvokeServer({Action = "Play"}); triggerCooldown() end)
-                                                                pauseBtn.MouseButton1Click:Connect(function() if isActionCooldown then return end; dataFunc:InvokeServer({Action = "Pause"}); triggerCooldown() end)
+                                                            resumeBtn.MouseButton1Click:Connect(function() if isActionCooldown then return end; local s = getSound(); if s then local length = getTrackLength(s); local currentPos = readPropSafe(s, "TimePosition", 0); if length > 0 then writePropSafe(s, "TimePosition", math.min(currentPos + 0.5, length)) end; s:Play() end; dataFunc:InvokeServer({Action = "Play"}); triggerCooldown() end)
                                                                     stopBtn.MouseButton1Click:Connect(function() dataFunc:InvokeServer({Action = "Stop"}) end)
                                                                         loopBtn.MouseButton1Click:Connect(function() local r = dataFunc:InvokeServer({Action = "Loop"}); if r.Success then loopBtn.BackgroundColor3 = r.IsLooping and THEME.Accent or Color3.fromRGB(80,80,200) end end)
                                                                             mountBtn.MouseButton1Click:Connect(function() dataFunc:InvokeServer({Action = "Mount"}) end)
-                                                                                saveBtn.MouseButton1Click:Connect(function() if idBox.Text ~= "" and currentSongName ~= "Ready" then local r = dataFunc:InvokeServer({Action="SaveSong", Id=idBox.Text, Name=currentSongName}); if r.Success then showNotification("Saved!", THEME.Green); loadPlaylist() elseif r.Reason == "Duplicate" then showNotification("Already Saved", THEME.Yellow) else showNotification("Error Saving", THEME.Red) end end end)
+                                                                                saveBtn.MouseButton1Click:Connect(function() if idBox.Text ~= "" and currentSongName ~= "Ready" then local r = dataFunc:InvokeServer({Action="SaveSong", Id=idBox.Text, Name=currentSongName}); if r.Success then if scrollingMusicLabel then scrollingMusicLabel.Text = "Saved!"; scrollingMusicLabel.TextColor3 = THEME.Green; scrollOffset = 0; scrollingMusicLabel.Position = UDim2.new(0,0,0,0) end; loadPlaylist() elseif r.Reason == "Duplicate" then if scrollingMusicLabel then scrollingMusicLabel.Text = "Already Saved"; scrollingMusicLabel.TextColor3 = THEME.Yellow; scrollOffset = 0; scrollingMusicLabel.Position = UDim2.new(0,0,0,0) end else if scrollingMusicLabel then scrollingMusicLabel.Text = "Error Saving"; scrollingMusicLabel.TextColor3 = THEME.Red; scrollOffset = 0; scrollingMusicLabel.Position = UDim2.new(0,0,0,0) end end end end)
                                                                                     volBox.FocusLost:Connect(function() local v = tonumber(volBox.Text); if v then dataFunc:InvokeServer({Action="Volume", Value=v}) end end)
                                                                                         pitchBox.FocusLost:Connect(function() local p = tonumber(pitchBox.Text); if p then dataFunc:InvokeServer({Action="Pitch", Value=p}) end end)
                                                                                             loadPlaylist()
+
+                                                                                            task.spawn(function()
+                                                                                                if not loadingFrame then return end
+                                                                                                local terminalLines = {
+                                                                                                    "> INITIALIZING AUDIO SYSTEM...",
+                                                                                                    "> CONNECTING TO SERVER... [OK]",
+                                                                                                    "> LOADING MODULES... [OK]",
+                                                                                                    "> SYNCING CLOCK... [OK]",
+                                                                                                    "> LAUNCHING UI..."
+                                                                                                }
+                                                                                                local loadingText = loadingFrame:FindFirstChildOfClass("TextLabel")
+                                                                                                if loadingText then
+                                                                                                    loadingText.Text = ""
+                                                                                                    for _, line in ipairs(terminalLines) do
+                                                                                                        loadingText.Text = loadingText.Text .. (loadingText.Text == "" and "" or "\n") .. line
+                                                                                                        task.wait(0.28)
+                                                                                                    end
+                                                                                                end
+
+                                                                                                task.wait(0.2)
+                                                                                                local fadeTween = tweenService:Create(loadingFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 1})
+                                                                                                fadeTween:Play()
+                                                                                                fadeTween.Completed:Wait()
+                                                                                                loadingFrame.Visible = false
+                                                                                                topBar.Visible = true
+                                                                                                contentFrame.Visible = true
+                                                                                            end)
                                                                                             
                                                                                             local function updateTimelineInput(input)
                                                                                                 local sound = getSound()
-                                                                                                if not sound or sound.TimeLength <= 0 then return end
+                                                                                                if not sound or getTrackLength(sound) <= 0 then return end
                                                                                                 local bgAbsPos = timelineBG.AbsolutePosition; local bgAbsSize = timelineBG.AbsoluteSize
                                                                                                 local relativeX = input.Position.X - bgAbsPos.X
                                                                                                 local percent = math.clamp(relativeX / bgAbsSize.X, 0, 1)
                                                                                                 timelineFill.Size = UDim2.new(percent, 0, 1, 0)
                                                                                                 timelineKnob.Position = UDim2.new(percent, 0, 0.5, 0)
-                                                                                                return percent * sound.TimeLength
+                                                                                                return percent * getTrackLength(sound)
                                                                                             end
                                                                                             timelineBG.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then isDraggingTimeline = true; updateTimelineInput(input) end end)
                                                                                                 userInputService.InputChanged:Connect(function(input) if isDraggingTimeline and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateTimelineInput(input) end end)
@@ -399,47 +505,74 @@ local function makeDraggable(guiObj)
                                                                                                                 if isLoading then return end
                                                                                                                 isLoading = true
                                                                                                                 local sound = getSound()
-                                                                                                                if sound and sound.SoundId ~= "" and lastWorkingId == "" then if sound.TimeLength > 0 then lastWorkingId = string.match(sound.SoundId, "%d+"); lastWorkingTime = sound.TimePosition end elseif sound and sound.TimeLength > 0 then lastWorkingTime = sound.TimePosition end
-                                                                                                                showNotification("Loading...", THEME.Accent)
+                                                                                                                if sound and readPropSafe(sound, "Asset", "") ~= "" and lastWorkingId == "" then if getTrackLength(sound) > 0 then lastWorkingId = string.match(tostring(readPropSafe(sound, "Asset", "")), "%d+") or ""; lastWorkingTime = readPropSafe(sound, "TimePosition", 0) end elseif sound and getTrackLength(sound) > 0 then lastWorkingTime = readPropSafe(sound, "TimePosition", 0) end
+                                                                                                                if scrollingMusicLabel then scrollingMusicLabel.Text = "Loading..."; scrollingMusicLabel.TextColor3 = THEME.Accent; scrollOffset = 0; scrollingMusicLabel.Position = UDim2.new(0,0,0,0) end
                                                                                                                 local targetId = idBox.Text
                                                                                                                 local success, result = pcall(function() return dataFunc:InvokeServer({Action = "AudioId", Value = targetId}) end)
                                                                                                                     if success and result.Success then
                                                                                                                         task.spawn(function()
                                                                                                                             local waitTime = 0
-                                                                                                                            while waitTime < 8 do if getSound().TimeLength > 0 then break end; waitTime = waitTime + 0.1; task.wait(0.1) end
+                                                                                                                            while waitTime < 8 do local gs = getSound(); if gs and getTrackLength(gs) > 0 then break end; waitTime = waitTime + 0.1; task.wait(0.1) end
                                                                                                                             isLoading = false
                                                                                                                             local newSound = getSound()
-                                                                                                                            if newSound and newSound.TimeLength > 0 then lastWorkingId = targetId; local state = dataFunc:InvokeServer({Action = "GetState"}); if state then syncAudio(state) end; showNotification("Playing", THEME.Green)
-                                                                                                                            else showNotification("Failed! Reverting...", THEME.Red); if lastWorkingId ~= "" then dataFunc:InvokeServer({Action = "AudioId", Value = lastWorkingId, Time = lastWorkingTime}) end end
+                                                                                                                            if newSound and getTrackLength(newSound) > 0 then lastWorkingId = targetId; local state = dataFunc:InvokeServer({Action = "GetState"}); if state then syncAudio(state) end; if scrollingMusicLabel then scrollingMusicLabel.Text = "Playing"; scrollingMusicLabel.TextColor3 = THEME.Green; scrollOffset = 0; scrollingMusicLabel.Position = UDim2.new(0,0,0,0) end
+                                                                                                                            else if scrollingMusicLabel then scrollingMusicLabel.Text = "Failed! Reverting..."; scrollingMusicLabel.TextColor3 = THEME.Red; scrollOffset = 0; scrollingMusicLabel.Position = UDim2.new(0,0,0,0) end; if lastWorkingId ~= "" then dataFunc:InvokeServer({Action = "AudioId", Value = lastWorkingId, Time = lastWorkingTime}) end end
                                                                                                                             end)
-                                                                                                                            else isLoading = false; showNotification("Invalid ID", THEME.Red) end
+                                                                                                                            else isLoading = false; if scrollingMusicLabel then scrollingMusicLabel.Text = "Invalid ID"; scrollingMusicLabel.TextColor3 = THEME.Red; scrollOffset = 0; scrollingMusicLabel.Position = UDim2.new(0,0,0,0) end end
                                                                                                                             end
  
                                                                                                                                 replication.OnClientEvent:Connect(function(newState) syncAudio(newState) end)
  
-                                                                                                                                    runService.RenderStepped:Connect(function(step)
-                                                                                                                                        pcall(function()
-                                                                                                                                            local sound = getSound()
-                                                                                                                                            if not mainFrame.Visible then return end
-                                                                                                                                            timeOffset = timeOffset + (step * 2)
-                                                                                                                                            if sound and sound.IsPlaying then for i, bar in ipairs(vizBars) do local noise = math.noise(i * 0.2, timeOffset, 0); local h = (sound.PlaybackLoudness / 8) * math.clamp(noise + 0.5, 0.2, 1); bar.Size = bar.Size:Lerp(UDim2.new(0, 8, 0, math.clamp(h, 4, 50)), 0.2) end else for _, bar in ipairs(vizBars) do bar.Size = bar.Size:Lerp(UDim2.new(0, 8, 0, 4), 0.1) end end
-                                                                                                                                            
-                                                                                                                                            -- [ACTIVE SYNC CHECK]
-                                                                                                                                            if globalState.IsPlaying and sound and sound.IsPlaying and sound.TimeLength > 0 and sound.IsLoaded then
-                                                                                                                                                local timePassed = workspace:GetServerTimeNow() - globalState.LastUpdateTimestamp
-                                                                                                                                                local expectedTime = globalState.StartPosition + timePassed
-                                                                                                                                                if sound.Looped then expectedTime = expectedTime % sound.TimeLength else expectedTime = math.clamp(expectedTime, 0, sound.TimeLength) end
-                                                                                                                                                
-                                                                                                                                                if math.abs(sound.TimePosition - expectedTime) > 0.8 then
-                                                                                                                                                    sound.TimePosition = expectedTime
-                                                                                                                                                end
-                                                                                                                                            end
- 
-                                                                                                                                            if sound and sound.TimeLength > 0 then timeLabelLeft.Text = formatTime(sound.TimePosition); timeLabelRight.Text = formatTime(sound.TimeLength); if not isDraggingTimeline then local pct = math.clamp(sound.TimePosition / sound.TimeLength, 0, 1); timelineFill.Size = UDim2.new(pct, 0, 1, 0); timelineKnob.Position = UDim2.new(pct, 0, 0.5, 0) end end
-                                                                                                                                            if scrollingMusicLabel then local textWidth = scrollingMusicLabel.TextBounds.X; local containerWidth = 280; if textWidth > containerWidth then scrollOffset = scrollOffset - (step * 40); if scrollOffset < -(textWidth + 30) then scrollOffset = containerWidth end; scrollingMusicLabel.Position = UDim2.new(0, scrollOffset, 0, 0) else scrollingMusicLabel.Position = UDim2.new(0, 0, 0, 0) end end
-                                                                                                                                        end)
-                                                                                                                                    end)
- 
-                                                                                                                                    tool.Equipped:Connect(function() if not gui then createGui() end; gui.Parent = player:WaitForChild("PlayerGui"); local state = dataFunc:InvokeServer({Action = "GetState"}); if state and state.Success then syncAudio(state) end end)
-                                                                                                                                        tool.Unequipped:Connect(function() if gui then gui.Parent = nil end end)
+	                                                                                                                                    runService.RenderStepped:Connect(function(step)
+	                                                                                                                                        pcall(function()
+	                                                                                                                                            local sound = getSound()
+	                                                                                                                                            if sound and ((not analyzerWire) or analyzerWire.SourceInstance ~= sound) then setupAnalyzer() end
+	                                                                                                                                            if not mainFrame.Visible then return end
+	                                                                                                                                            timeOffset = timeOffset + (step * 2)
 
+	                                                                                                                                            if localAnalyzer and sound and isAudioPlaying(sound) then
+	                                                                                                                                                local spectrum = localAnalyzer:GetSpectrum()
+	                                                                                                                                                local spectrumCount = #spectrum
+	                                                                                                                                                for i, bar in ipairs(vizBars) do
+	                                                                                                                                                    local sampleIndex = math.clamp(math.floor(((i - 1) / math.max(#vizBars - 1, 1)) * math.max(spectrumCount - 1, 0)) + 1, 1, math.max(spectrumCount, 1))
+	                                                                                                                                                    local amplitude = spectrumCount > 0 and (spectrum[sampleIndex] or 0) or 0
+	                                                                                                                                                    local targetHeight = math.clamp(4 + (amplitude * 2500), 4, 100)
+	                                                                                                                                                    bar.Size = bar.Size:Lerp(UDim2.new(0, 8, 0, targetHeight), 0.25)
+	                                                                                                                                                end
+	                                                                                                                                            else
+	                                                                                                                                                for i, bar in ipairs(vizBars) do
+	                                                                                                                                                    local idleWave = (math.sin((timeOffset * 1.8) + (i * 0.45)) + 1) * 0.5
+	                                                                                                                                                    local targetHeight = 4 + (idleWave * 1.5)
+	                                                                                                                                                    bar.Size = bar.Size:Lerp(UDim2.new(0, 8, 0, targetHeight), 0.25)
+	                                                                                                                                                end
+	                                                                                                                                            end
+
+	                                                                                                                                            -- [ACTIVE SYNC CHECK]
+	                                                                                                                                            local soundLength = sound and getTrackLength(sound) or 0
+	                                                                                                                                            if globalState.IsPlaying and sound and isAudioPlaying(sound) and soundLength > 0 then
+	                                                                                                                                                local timePassed = workspace:GetServerTimeNow() - globalState.LastUpdateTimestamp
+	                                                                                                                                                local expectedTime = globalState.StartPosition + (timePassed * globalState.PlaybackSpeed)
+	                                                                                                                                                if isAudioLooping(sound) then expectedTime = expectedTime % soundLength else expectedTime = math.clamp(expectedTime, 0, soundLength) end
+
+	                                                                                                                                                local currentPos = readPropSafe(sound, "TimePosition", 0)
+	                                                                                                                                                if math.abs(currentPos - expectedTime) > 0.8 then
+	                                                                                                                                                    writePropSafe(sound, "TimePosition", expectedTime)
+	                                                                                                                                                end
+	                                                                                                                                            end
+
+	                                                                                                                                            if sound and soundLength > 0 then
+	                                                                                                                                                local currentPos = readPropSafe(sound, "TimePosition", 0)
+	                                                                                                                                                timeLabelLeft.Text = formatTime(currentPos)
+	                                                                                                                                                timeLabelRight.Text = formatTime(soundLength)
+	                                                                                                                                                if not isDraggingTimeline then
+	                                                                                                                                                    local pct = math.clamp(currentPos / soundLength, 0, 1)
+	                                                                                                                                                    timelineFill.Size = timelineFill.Size:Lerp(UDim2.new(pct, 0, 1, 0), 0.3)
+	                                                                                                                                                    timelineKnob.Position = timelineKnob.Position:Lerp(UDim2.new(pct, 0, 0.5, 0), 0.3)
+	                                                                                                                                                end
+	                                                                                                                                            end
+	                                                                                                                                            if scrollingMusicLabel then local textWidth = scrollingMusicLabel.TextBounds.X; local containerWidth = 280; if textWidth > containerWidth then scrollOffset = scrollOffset - (step * 40); if scrollOffset < -(textWidth + 30) then scrollOffset = containerWidth end; scrollingMusicLabel.Position = UDim2.new(0, scrollOffset, 0, 0) else scrollingMusicLabel.Position = UDim2.new(0, 0, 0, 0) end end
+	                                                                                                                                        end)
+	                                                                                                                                    end)
+ 
+                                                                                                                                    tool.Equipped:Connect(function() if not gui then createGui() end; gui.Parent = player:WaitForChild("PlayerGui"); setupAnalyzer(); local state = dataFunc:InvokeServer({Action = "GetState"}); if state and state.Success then syncAudio(state) end end)
+                                                                                                                                        tool.Unequipped:Connect(function() if activeBlur then activeBlur:Destroy(); activeBlur = nil end; if gui then gui.Parent = nil end; if analyzerWire then analyzerWire:Destroy(); analyzerWire = nil end; if localAnalyzer then localAnalyzer:Destroy(); localAnalyzer = nil end end)
